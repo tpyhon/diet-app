@@ -5,13 +5,7 @@ import MealPage     from './pages/MealPage'
 import WeightPage   from './pages/WeightPage'
 import AiPage       from './pages/AiPage'
 import TrainingPage from './pages/TrainingPage'
-
-// 未実装
-const WalkingPage = () => (
-  <div className="p-4">
-    <h1 className="text-2xl font-bold text-green-600">🚶 ウォーキング（実装予定）</h1>
-  </div>
-)
+import WalkingPage  from './pages/WalkingPage'
 
 const navItems = [
   { to: '/',         icon: Home,            label: 'ホーム'   },
