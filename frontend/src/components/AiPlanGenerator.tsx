@@ -40,6 +40,9 @@ function GeneratedPlanResult({
   result: { saved_count: number; plans: unknown[]; comment: string }
   onClose: () => void
 }) {
+  // plansが配列でない場合のガード
+  const plans = Array.isArray(result.plans) ? result.plans : []
+
   return (
     <div className="space-y-4">
       {/* 成功バナー */}
@@ -49,19 +52,19 @@ function GeneratedPlanResult({
           <p className="font-semibold text-green-700">
             {result.saved_count}件のプランを生成・保存しました！
           </p>
-          <p className="text-sm text-green-600 mt-1">{result.comment}</p>
+          <p className="text-sm text-green-600 mt-1">{result.comment ?? ''}</p>
         </div>
       </div>
 
       {/* 生成されたプラン一覧 */}
       <div className="space-y-2">
-        {(result.plans as {
-          name: string
-          body_part: string
-          day_of_week: number
-          exercises: { name: string; sets: number; reps: number; weight_kg?: number }[]
-        }[]).map((plan, i) => (
-          <PlanPreviewCard key={i} plan={plan} />
+        {plans.map((plan, i) => (
+          <PlanPreviewCard key={i} plan={plan as {
+            name: string
+            body_part: string
+            day_of_week: number
+            exercises: { name: string; sets: number; reps: number; weight_kg?: number }[]
+          }} />
         ))}
       </div>
 
@@ -76,6 +79,7 @@ function GeneratedPlanResult({
   )
 }
 
+
 function PlanPreviewCard({ plan }: {
   plan: {
     name: string
@@ -87,6 +91,9 @@ function PlanPreviewCard({ plan }: {
   const [open, setOpen] = useState(false)
   const DOW = ['月', '火', '水', '木', '金', '土', '日']
 
+  // exercisesが配列でない場合のガード
+  const exercises = Array.isArray(plan.exercises) ? plan.exercises : []
+
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       <button
@@ -94,25 +101,27 @@ function PlanPreviewCard({ plan }: {
         onClick={() => setOpen(v => !v)}
       >
         <div className="flex items-center gap-2 text-left">
-          <span className="font-semibold text-gray-800 text-sm">{plan.name}</span>
-          {plan.day_of_week != null && (
+          <span className="font-semibold text-gray-800 text-sm">
+            {plan.name ?? 'AIプラン'}
+          </span>
+          {plan.day_of_week != null && DOW[plan.day_of_week] && (
             <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full">
               {DOW[plan.day_of_week]}曜
             </span>
           )}
         </div>
         <div className="flex items-center gap-2 text-gray-400">
-          <span className="text-xs">{plan.exercises.length}種目</span>
+          <span className="text-xs">{exercises.length}種目</span>
           {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </div>
       </button>
       {open && (
         <div className="border-t border-gray-50 px-4 pb-3 pt-2 space-y-1.5">
-          {plan.exercises.map((ex, i) => (
+          {exercises.map((ex, i) => (
             <div key={i} className="flex justify-between text-xs">
-              <span className="text-gray-600">{ex.name}</span>
+              <span className="text-gray-600">{ex.name ?? '種目'}</span>
               <span className="text-gray-400">
-                {ex.sets}×{ex.reps}
+                {ex.sets ?? 0}×{ex.reps ?? 0}
                 {ex.weight_kg ? ` @ ${ex.weight_kg}kg` : ''}
               </span>
             </div>
@@ -122,6 +131,7 @@ function PlanPreviewCard({ plan }: {
     </div>
   )
 }
+
 
 // ── メインコンポーネント ──────────────────────────────────
 export default function AiPlanGenerator({ onClose }: { onClose: () => void }) {
@@ -143,12 +153,23 @@ export default function AiPlanGenerator({ onClose }: { onClose: () => void }) {
   const mutation = useMutation({
     mutationFn: generateAiPlan,
     onSuccess: (res) => {
-      setResult(res.data)
+      const data = res.data
+      // エラーレスポンスのハンドリング
+      if (data.error) {
+        toast.error(`生成エラー: ${data.error}`)
+        console.error('AI生成エラー:', data)
+        return
+      }
+      setResult(data)
       queryClient.invalidateQueries({ queryKey: ['plans'] })
       queryClient.invalidateQueries({ queryKey: ['todaySuggest'] })
     },
-    onError: () => toast.error('プランの生成に失敗しました'),
+    onError: (err) => {
+      console.error('通信エラー:', err)
+      toast.error('プランの生成に失敗しました')
+    },
   })
+
 
   const togglePart = (part: string) => {
     setForm(f => ({

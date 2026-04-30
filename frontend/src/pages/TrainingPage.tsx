@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   fetchPlans, fetchTodaySuggest, fetchGameStatus,
-  fetchLogs, createPlan, createLog, deletePlan
+  fetchLogs, createPlan, createLog, deletePlan,deleteTrainingLog
 } from '../api'
 import type { TrainingPlan, Exercise, GameStatus } from '../api'
 import toast from 'react-hot-toast'
@@ -271,6 +271,19 @@ function DoTrainingModal({
   const [notes, setNotes] = useState('')
   const queryClient = useQueryClient()
 
+  // ← 同様のガード
+  const exercises: Exercise[] = Array.isArray(plan.exercises)
+    ? plan.exercises
+    : (() => {
+        try {
+          const parsed = JSON.parse(plan.exercises as unknown as string)
+          return Array.isArray(parsed) ? parsed : []
+        } catch {
+          return []
+        }
+      })()
+
+  // 以降は exercises 変数を使うように変更
   const mutation = useMutation({
     mutationFn: createLog,
     onSuccess: (res) => {
@@ -280,7 +293,8 @@ function DoTrainingModal({
       const xp = res.data.log.xp_earned
       toast.success(`+${xp} XP 獲得！🎉`, { duration: 3000 })
       if (gs.streak_days >= 3) {
-        setTimeout(() => toast(`🔥 ${gs.streak_days}日連続！ストリークボーナス！`, { duration: 3000 }), 1000)
+        setTimeout(() => toast(`🔥 ${gs.streak_days}日連続！ストリークボーナス！`,
+          { duration: 3000 }), 1000)
       }
       onClose()
     },
@@ -291,7 +305,7 @@ function DoTrainingModal({
     mutation.mutate({
       plan_id: plan.id,
       body_part: plan.body_part,
-      exercises: plan.exercises,
+      exercises: exercises,          // ← plan.exercises → exercises
       duration_minutes: duration,
       notes: notes || undefined,
     })
@@ -309,7 +323,7 @@ function DoTrainingModal({
 
         {/* 種目一覧 */}
         <div className="space-y-2 max-h-48 overflow-y-auto">
-          {plan.exercises.map((ex, i) => (
+          {exercises.map((ex, i) => (        // ← plan.exercises → exercises
             <div key={i} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
               <span className="text-sm font-medium text-gray-700">{ex.name}</span>
               <span className="text-xs text-gray-500">
@@ -326,8 +340,7 @@ function DoTrainingModal({
             実施時間：<span className="font-bold text-purple-600">{duration}分</span>
           </label>
           <input
-            type="range"
-            min={5} max={120} step={5}
+            type="range" min={5} max={120} step={5}
             value={duration}
             onChange={e => setDuration(parseInt(e.target.value))}
             className="w-full accent-purple-500"
@@ -337,7 +350,6 @@ function DoTrainingModal({
           </div>
         </div>
 
-        {/* メモ */}
         <input
           type="text"
           placeholder="メモ（任意）例：調子良かった"
@@ -347,26 +359,20 @@ function DoTrainingModal({
                      focus:outline-none focus:ring-2 focus:ring-purple-400"
         />
 
-        {/* XP予告 */}
         <div className="bg-yellow-50 rounded-xl px-4 py-3 flex items-center gap-2">
           <Zap size={16} className="text-yellow-500" />
           <span className="text-sm text-yellow-700 font-semibold">完了で +50 XP 獲得！</span>
         </div>
 
         <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-500 text-sm"
-          >
+          <button onClick={onClose}
+            className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-500 text-sm">
             キャンセル
           </button>
-          <button
-            onClick={handleDone}
-            disabled={mutation.isPending}
+          <button onClick={handleDone} disabled={mutation.isPending}
             className="flex-1 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-purple-700
                        text-white text-sm font-bold hover:opacity-90
-                       disabled:opacity-50 flex items-center justify-center gap-2"
-          >
+                       disabled:opacity-50 flex items-center justify-center gap-2">
             {mutation.isPending
               ? <><Loader2 size={16} className="animate-spin" />記録中...</>
               : <><CheckCircle2 size={16} />トレーニング完了！</>
@@ -377,6 +383,7 @@ function DoTrainingModal({
     </div>
   )
 }
+
 
 // ─── プランカード ────────────────────────────────────────
 function PlanCard({
@@ -389,6 +396,18 @@ function PlanCard({
   onDelete: (id: number) => void
 }) {
   const [open, setOpen] = useState(false)
+
+  // ← exercises が文字列で来た場合のガード
+  const exercises: Exercise[] = Array.isArray(plan.exercises)
+    ? plan.exercises
+    : (() => {
+        try {
+          const parsed = JSON.parse(plan.exercises as unknown as string)
+          return Array.isArray(parsed) ? parsed : []
+        } catch {
+          return []
+        }
+      })()
 
   return (
     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
@@ -405,7 +424,7 @@ function PlanCard({
               </span>
             )}
           </div>
-          <p className="text-xs text-gray-400 mt-0.5">{plan.exercises.length}種目</p>
+          <p className="text-xs text-gray-400 mt-0.5">{exercises.length}種目</p>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -421,7 +440,7 @@ function PlanCard({
             <Trash2 size={16} />
           </button>
           <button
-            onClick={() => onStart(plan)}
+            onClick={() => onStart({ ...plan, exercises })}
             className="ml-1 bg-purple-600 text-white text-xs font-bold
                        px-3 py-2 rounded-xl hover:bg-purple-700 transition-colors"
           >
@@ -430,10 +449,9 @@ function PlanCard({
         </div>
       </div>
 
-      {/* 展開：種目詳細 */}
       {open && (
         <div className="border-t border-gray-50 px-4 pb-3 pt-2 space-y-1.5">
-          {plan.exercises.map((ex, i) => (
+          {exercises.map((ex, i) => (
             <div key={i} className="flex items-center justify-between text-xs">
               <span className="text-gray-600">{ex.name}</span>
               <span className="text-gray-400">
@@ -448,6 +466,78 @@ function PlanCard({
   )
 }
 
+// ─── ログカード ────────────────────────────────────────
+function LogCard({ log, onDelete }: {
+  log: {
+    id: number
+    date: string
+    body_part: string
+    duration_minutes: number
+    xp_earned: number
+    notes?: string
+    exercises_json: string
+  }
+  onDelete: (id: number) => void
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  return (
+    <div className="bg-white rounded-2xl px-4 py-3 shadow-sm">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <span className={`text-xs px-2 py-0.5 rounded-full ${getBodyPartStyle(log.body_part)}`}>
+            {getBodyPartLabel(log.body_part)}
+          </span>
+          <span className="text-xs text-gray-500">{log.duration_minutes}分</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 text-xs text-yellow-600
+                          bg-yellow-50 px-2 py-0.5 rounded-full font-bold">
+            <Zap size={11} />
+            +{log.xp_earned} XP
+          </div>
+          {/* 削除ボタン */}
+          {confirmDelete ? (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-red-500">削除？</span>
+              <button
+                onClick={() => onDelete(log.id)}
+                className="text-xs bg-red-500 text-white px-2 py-1 rounded-lg"
+              >
+                はい
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-lg"
+              >
+                いいえ
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="p-1.5 text-gray-300 hover:text-red-400
+                         hover:bg-red-50 rounded-lg transition-colors"
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
+        </div>
+      </div>
+      <p className="text-xs text-gray-400">
+        {new Date(log.date).toLocaleDateString('ja-JP', {
+          year: 'numeric', month: 'short', day: 'numeric',
+          hour: '2-digit', minute: '2-digit'
+        })}
+      </p>
+      {log.notes && (
+        <p className="text-xs text-gray-500 mt-1">📝 {log.notes}</p>
+      )}
+    </div>
+  )
+}
+
+
 // ─── メインページ ────────────────────────────────────────
 export default function TrainingPage() {
   const [showForm, setShowForm] = useState(false)
@@ -455,6 +545,15 @@ export default function TrainingPage() {
   const [activePlan, setActivePlan] = useState<TrainingPlan | null>(null)
   const [tab, setTab] = useState<'today' | 'all' | 'log'>('today')
   const queryClient = useQueryClient()
+
+  const deleteLogMutation = useMutation({
+    mutationFn: deleteTrainingLog,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['trainingLogs'] })
+      toast.success('削除しました')
+    },
+    onError: () => toast.error('削除に失敗しました'),
+  })
 
   const { data: plans = [] } = useQuery<TrainingPlan[]>({
     queryKey: ['plans'],
@@ -680,52 +779,33 @@ export default function TrainingPage() {
 
       {/* ── 履歴タブ ── */}
       {tab === 'log' && (
-        <div className="space-y-3">
-          {logs.length > 0 ? (
-            logs.map((log: {
-              id: number
-              date: string
-              body_part: string
-              duration_minutes: number
-              xp_earned: number
-              notes?: string
-              exercises_json: string
-            }) => (
-              <div key={log.id} className="bg-white rounded-2xl px-4 py-3 shadow-sm">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${getBodyPartStyle(log.body_part)}`}>
-                      {getBodyPartLabel(log.body_part)}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {log.duration_minutes}分
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1 text-xs text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded-full font-bold">
-                    <Zap size={11} />
-                    +{log.xp_earned} XP
-                  </div>
-                </div>
-                <p className="text-xs text-gray-400">
-                  {new Date(log.date).toLocaleDateString('ja-JP', {
-                    year: 'numeric', month: 'short', day: 'numeric',
-                    hour: '2-digit', minute: '2-digit'
-                  })}
-                </p>
-                {log.notes && (
-                  <p className="text-xs text-gray-500 mt-1">📝 {log.notes}</p>
-                )}
-              </div>
-            ))
-          ) : (
-            <div className="bg-white rounded-2xl p-6 text-center text-gray-400 shadow-sm">
-              <Flame size={40} className="mx-auto mb-2 opacity-25" />
-              <p className="text-sm">トレーニング履歴がありません</p>
-              <p className="text-xs mt-1">プランを開始してトレーニングを記録しましょう</p>
-            </div>
-          )}
-        </div>
-      )}
+      <div className="space-y-3">
+        {logs.length > 0 ? (
+          logs.map((log: {
+            id: number
+            date: string
+            body_part: string
+            duration_minutes: number
+            xp_earned: number
+            notes?: string
+            exercises_json: string
+          }) => (
+            <LogCard
+              key={log.id}
+              log={log}
+              onDelete={(id) => deleteLogMutation.mutate(id)}
+            />
+          ))
+        ) : (
+          <div className="bg-white rounded-2xl p-6 text-center text-gray-400 shadow-sm">
+            <Flame size={40} className="mx-auto mb-2 opacity-25" />
+            <p className="text-sm">トレーニング履歴がありません</p>
+            <p className="text-xs mt-1">プランを開始してトレーニングを記録しましょう</p>
+          </div>
+        )}
+      </div>
+    )}
+
 
     </div>
   )

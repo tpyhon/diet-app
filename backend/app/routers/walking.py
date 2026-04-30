@@ -14,62 +14,69 @@ class GPSPoint(BaseModel):
     lng: float
     timestamp: str
 
-class WalkingSessionCreate(BaseModel):
+class WalkingCreate(BaseModel):
     start_time: datetime
     end_time: datetime
     route_points: List[GPSPoint]
     notes: Optional[str] = None
+    manual_distance_km: Optional[float] = None  # ← 追加：手動入力時の距離
 
-def calculate_distance(points: List[GPSPoint]) -> float:
-    """ハーバーサイン公式で総距離(km)を計算"""
-    total = 0.0
-    R = 6371  # 地球半径 km
+def haversine_km(points: List[GPSPoint]) -> float:
+    total, R = 0.0, 6371
     for i in range(len(points) - 1):
-        lat1, lon1 = math.radians(points[i].lat), math.radians(points[i].lng)
-        lat2, lon2 = math.radians(points[i+1].lat), math.radians(points[i+1].lng)
-        dlat, dlon = lat2 - lat1, lon2 - lon1
+        lat1 = math.radians(points[i].lat);   lon1 = math.radians(points[i].lng)
+        lat2 = math.radians(points[i+1].lat); lon2 = math.radians(points[i+1].lng)
+        dlat = lat2 - lat1; dlon = lon2 - lon1
         a = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
         total += R * 2 * math.asin(math.sqrt(a))
     return round(total, 3)
 
-def calculate_walking_calories(distance_km: float, duration_minutes: float) -> float:
-    """体重60kg想定、METs法でカロリー推定"""
-    weight_kg = 60
-    mets = 3.5  # ウォーキング平均METs
-    hours = duration_minutes / 60
-    return round(mets * weight_kg * hours, 1)
+def walking_calories(distance_km: float, duration_min: float) -> float:
+    return round(3.5 * 60 * (duration_min / 60), 1)
 
 @router.post("/")
-def create_walking_session(session: WalkingSessionCreate, db: Session = Depends(get_db)):
-    duration = (session.end_time - session.start_time).total_seconds() / 60
-    distance = calculate_distance(session.route_points)
-    avg_speed = (distance / (duration / 60)) if duration > 0 else 0
-    calories = calculate_walking_calories(distance, duration)
+def create_session(data: WalkingCreate, db: Session = Depends(get_db)):
+    duration = (data.end_time - data.start_time).total_seconds() / 60
 
-    db_session = WalkingSession(
-        start_time=session.start_time,
-        end_time=session.end_time,
+    # 手動入力距離があればそちらを優先、なければGPSから計算
+    if data.manual_distance_km is not None:
+        distance = data.manual_distance_km
+    else:
+        distance = haversine_km(data.route_points)
+
+    avg_speed = (distance / (duration / 60)) if duration > 0 else 0
+    calories  = walking_calories(distance, duration)
+
+    db_s = WalkingSession(
+        start_time=data.start_time,
+        end_time=data.end_time,
         duration_minutes=round(duration, 1),
         distance_km=distance,
         avg_speed_kmh=round(avg_speed, 2),
         estimated_calories=calories,
-        route_json=json.dumps([p.model_dump() for p in session.route_points]),
-        notes=session.notes
+        route_json=json.dumps([p.model_dump() for p in data.route_points]),
+        notes=data.notes
     )
-    db.add(db_session)
-    db.commit()
-    db.refresh(db_session)
-    return db_session
+    db.add(db_s); db.commit(); db.refresh(db_s)
+    return db_s
 
 @router.get("/")
-def get_walking_sessions(limit: int = 20, db: Session = Depends(get_db)):
+def get_sessions(limit: int = 20, db: Session = Depends(get_db)):
     return db.query(WalkingSession).order_by(
-        WalkingSession.start_time.desc()
-    ).limit(limit).all()
+        WalkingSession.start_time.desc()).limit(limit).all()
 
 @router.get("/{session_id}/route")
 def get_route(session_id: int, db: Session = Depends(get_db)):
-    session = db.query(WalkingSession).filter(WalkingSession.id == session_id).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return {"route": json.loads(session.route_json) if session.route_json else []}
+    s = db.query(WalkingSession).filter(WalkingSession.id == session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"route": json.loads(s.route_json) if s.route_json else []}
+
+@router.delete("/{session_id}")
+def delete_session(session_id: int, db: Session = Depends(get_db)):
+    s = db.query(WalkingSession).filter(WalkingSession.id == session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete(s)
+    db.commit()
+    return {"ok": True}

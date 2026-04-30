@@ -35,6 +35,13 @@ export const deleteWeight       = (id: number) => api.delete(`/weight/${id}`)
 // ── AI ────────────────────────────────
 export const fetchAiAdvice = () => api.get('/ai/advice')
 
+// ── ウォーキング削除 ───────────────────────────────────
+export const deleteWalkingSession = (id: number) => api.delete(`/walking/${id}`)
+
+// ── トレーニングログ削除 ───────────────────────────────
+export const deleteTrainingLog = (id: number) => api.delete(`/training/logs/${id}`)
+
+
 // ── 型定義（type キーワードで明示）────────
 export type MealCreate = {
   meal_type: string
@@ -62,6 +69,7 @@ export type WalkingSession = {
   avg_speed_kmh: number
   estimated_calories: number
   notes?: string
+  manual_distance_km?: number  // ← 追加
 }
 
 export type TrainingPlan = {
@@ -94,6 +102,7 @@ export type GameStatus = {
   next_level_xp: number
   badges: string[]
 }
+
 
 // ── AI プラン生成 ──────────────────────────────────────
 export const generateAiPlan = (data: AiPlanRequest) =>

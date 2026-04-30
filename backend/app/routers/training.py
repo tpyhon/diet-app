@@ -125,3 +125,12 @@ def get_game_status(db: Session = Depends(get_db)):
 @router.get("/logs")
 def get_logs(limit: int = 30, db: Session = Depends(get_db)):
     return db.query(TrainingLog).order_by(TrainingLog.date.desc()).limit(limit).all()
+
+@router.delete("/logs/{log_id}")
+def delete_log(log_id: int, db: Session = Depends(get_db)):
+    log = db.query(TrainingLog).filter(TrainingLog.id == log_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete(log)
+    db.commit()
+    return {"ok": True}

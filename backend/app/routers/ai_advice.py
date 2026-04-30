@@ -156,38 +156,73 @@ JSONのみを返してください。
 
     # JSONパース（余分なテキストを除去）
     raw = response.text.strip()
-    # コードブロックが含まれる場合に除去
+
+    # コードブロック除去
     if "```" in raw:
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
+        parts = raw.split("```")
+        for part in parts:
+            part = part.strip()
+            if part.startswith("json"):
+                part = part[4:].strip()
+            if part.startswith("{"):
+                raw = part
+                break
+
     raw = raw.strip()
+
+    # JSON部分だけ抽出
+    start = raw.find("{")
+    end   = raw.rfind("}") + 1
+    if start != -1 and end > start:
+        raw = raw[start:end]
 
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError:
-        # JSON部分だけ抽出を試みる
-        start = raw.find("{")
-        end   = raw.rfind("}") + 1
-        if start != -1 and end > start:
-            data = json.loads(raw[start:end])
-        else:
-            return {"error": "AIの応答をパースできませんでした", "raw": raw}
+    except json.JSONDecodeError as e:
+        print(f"JSON parse error: {e}")
+        print(f"Raw response: {raw[:500]}")
+        return {
+            "error": "AIの応答をパースできませんでした",
+            "raw": raw[:500],
+            "saved_count": 0,
+            "plans": [],
+            "comment": "生成に失敗しました。もう一度お試しください。"
+        }
+
+    # plansキーが存在しない場合のガード
+    if "plans" not in data:
+        print(f"No 'plans' key in response: {data}")
+        return {
+            "error": "プランデータが見つかりませんでした",
+            "saved_count": 0,
+            "plans": [],
+            "comment": str(data)
+        }
+
 
     # DBに保存
     saved_plans = []
     for plan_data in data.get("plans", []):
+        exercises = plan_data.get("exercises", [])
+        # exercisesが文字列の場合はパース
+        if isinstance(exercises, str):
+            try:
+                exercises = json.loads(exercises)
+            except Exception:
+                exercises = []
+
         db_plan = TrainingPlan(
             name=plan_data.get("name", "AIプラン"),
             body_part=plan_data.get("body_part", "chest"),
-            exercises_json=json.dumps(
-                plan_data.get("exercises", []),
-                ensure_ascii=False
-            ),
+            exercises_json=json.dumps(exercises, ensure_ascii=False),
             day_of_week=plan_data.get("day_of_week"),
         )
         db.add(db_plan)
-        saved_plans.append(plan_data)
+        # フロントに返すデータはexercisesを配列で返す
+        saved_plans.append({
+            **plan_data,
+            "exercises": exercises,
+        })
 
     db.commit()
 
@@ -196,3 +231,4 @@ JSONのみを返してください。
         "plans": saved_plans,
         "comment": data.get("comment", ""),
     }
+
