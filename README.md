@@ -45,7 +45,7 @@ Gemma AI がパーソナライズされたアドバイスを提供します。
 - **Wake Lock API** — ウォーキング中の画面スリープ防止
 
 ## 📁 ディレクトリ構成
-
+```
 diet-app/
 │
 ├── 📦 venv/                          # Python 仮想環境
@@ -104,7 +104,7 @@ diet-app/
 ├── .gitignore
 ├── 🚀 start.bat                      # Windows 用 一発起動スクリプト
 └── 📖 README.md
-
+```
 
 ## 🚀 セットアップ
 
