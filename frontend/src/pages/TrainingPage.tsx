@@ -9,8 +9,9 @@ import toast from 'react-hot-toast'
 import {
   Dumbbell, Plus, Trash2, Loader2, Trophy,
   Zap, Flame, ChevronDown, ChevronUp,
-  CheckCircle2, Calendar, Star
+  CheckCircle2, Calendar, Star, Sparkles
 } from 'lucide-react'
+import AiPlanGenerator from '../components/AiPlanGenerator'
 
 // ─── 定数 ────────────────────────────────────────────────
 const BODY_PARTS = [
@@ -450,6 +451,7 @@ function PlanCard({
 // ─── メインページ ────────────────────────────────────────
 export default function TrainingPage() {
   const [showForm, setShowForm] = useState(false)
+  const [showAiGenerator, setShowAiGenerator] = useState(false)
   const [activePlan, setActivePlan] = useState<TrainingPlan | null>(null)
   const [tab, setTab] = useState<'today' | 'all' | 'log'>('today')
   const queryClient = useQueryClient()
@@ -504,18 +506,37 @@ export default function TrainingPage() {
           <Dumbbell className="text-purple-500" size={22} />
           筋トレ
         </h2>
-        <button
-          onClick={() => setShowForm(v => !v)}
-          className="flex items-center gap-1 bg-purple-600 text-white px-4 py-2
-                     rounded-xl text-sm font-semibold hover:bg-purple-700 transition-colors"
-        >
-          <Plus size={16} />
-          プラン追加
-        </button>
+        <div className="flex gap-2">
+          {/* AI生成ボタン */}
+          <button
+            onClick={() => { setShowAiGenerator(v => !v); setShowForm(false) }}
+            className="flex items-center gap-1 bg-gradient-to-r from-purple-500 to-purple-700
+                      text-white px-3 py-2 rounded-xl text-sm font-semibold
+                      hover:opacity-90 transition-all shadow-sm"
+          >
+            <Sparkles size={15} />
+            AI生成
+          </button>
+          {/* 手動追加ボタン */}
+          <button
+            onClick={() => { setShowForm(v => !v); setShowAiGenerator(false) }}
+            className="flex items-center gap-1 bg-purple-600 text-white px-3 py-2
+                      rounded-xl text-sm font-semibold hover:bg-purple-700 transition-colors"
+          >
+            <Plus size={15} />
+            手動追加
+          </button>
+        </div>
       </div>
 
       {/* プラン作成フォーム */}
       {showForm && <CreatePlanForm onClose={() => setShowForm(false)} />}
+      
+      {/* AI生成フォーム */}
+      {showAiGenerator && (
+        <AiPlanGenerator onClose={() => setShowAiGenerator(false)} />
+      )}
+
 
       {/* ゲームステータス */}
       {gameStatus && (

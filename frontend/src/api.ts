@@ -94,3 +94,17 @@ export type GameStatus = {
   next_level_xp: number
   badges: string[]
 }
+
+// ── AI プラン生成 ──────────────────────────────────────
+export const generateAiPlan = (data: AiPlanRequest) =>
+  api.post('/ai/generate-plan', data)
+
+export type AiPlanRequest = {
+  fitness_level: 'beginner' | 'intermediate' | 'advanced'
+  goal: 'diet' | 'muscle' | 'health'
+  available_days: number
+  target_parts: string[]
+  equipment: 'none' | 'dumbbell' | 'gym'
+  minutes_per_session: number
+  notes?: string
+}
