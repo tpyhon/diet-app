@@ -1,12 +1,13 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
 import { Home, UtensilsCrossed, Footprints, Dumbbell, Scale, Bot } from 'lucide-react'
+import Dashboard from './pages/Dashboard'
+import MealPage  from './pages/MealPage'
 
-const Dashboard    = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">🏠 ダッシュボード</h1></div>
-const MealPage     = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">🍽️ 食事記録</h1></div>
-const WalkingPage  = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">🚶 ウォーキング</h1></div>
-const TrainingPage = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">💪 筋トレ</h1></div>
-const WeightPage   = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">⚖️ 体重記録</h1></div>
-const AiPage       = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">🤖 AIアドバイス</h1></div>
+// 未実装ページは仮表示
+const WalkingPage  = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">🚶 ウォーキング（実装予定）</h1></div>
+const TrainingPage = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">💪 筋トレ（実装予定）</h1></div>
+const WeightPage   = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">⚖️ 体重記録（実装予定）</h1></div>
+const AiPage       = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">🤖 AIアドバイス（実装予定）</h1></div>
 
 const navItems = [
   { to: '/',         icon: Home,            label: 'ホーム'   },
@@ -21,12 +22,10 @@ export default function App() {
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
 
-      {/* ヘッダー */}
       <header className="bg-green-600 text-white px-4 py-3 shadow-md">
         <h1 className="text-lg font-bold tracking-wide">💪 My Diet App</h1>
       </header>
 
-      {/* メインコンテンツ */}
       <main className="flex-1 pb-20 overflow-y-auto">
         <Routes>
           <Route path="/"         element={<Dashboard />}    />
@@ -38,7 +37,6 @@ export default function App() {
         </Routes>
       </main>
 
-      {/* ボトムナビゲーション */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center h-16 shadow-lg z-50">
         {navItems.map(({ to, icon: Icon, label }) => (
           <NavLink
