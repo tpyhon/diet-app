@@ -1,198 +1,278 @@
-import axios from 'axios'
+// frontend/src/api.ts
 
-const api = axios.create({
-  baseURL: '/api',
-  headers: { 'Content-Type': 'application/json' },
-})
+const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
-// ── JWTトークンを自動付与するインターセプター ──
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+// ───── 共通フェッチ ─────
+
+async function apiFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = localStorage.getItem("token");
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers ?? {}),
+    },
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem("token");
+    window.location.href = "/login";
+    throw new Error("Unauthorized");
   }
-  return config
-})
 
-// ── 401エラー時に自動ログアウト ──
-api.interceptors.response.use(
-  (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('user')
-      window.location.href = '/login'
-    }
-    return Promise.reject(err)
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
   }
-)
 
-export default api
-
-// ── 認証 ──────────────────────────────────────
-export const loginApi = (username: string, password: string) => {
-  const form = new URLSearchParams()
-  form.append('username', username)
-  form.append('password', password)
-  return axios.post('/api/auth/login', form, {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  })
-}
-export const registerApi = (username: string, password: string, display_name?: string) =>
-  api.post('/auth/register', { username, password, display_name })
-
-// ── 食事 ──────────────────────────────
-export const fetchTodayMeals = () => api.get('/meals/today')
-export const fetchMeals      = () => api.get('/meals/')
-export const createMeal      = (data: MealCreate) => api.post('/meals/', data)
-export const deleteMeal      = (id: number) => api.delete(`/meals/${id}`)
-
-// ── ウォーキング ────────────────────────
-export const fetchWalkingSessions = () => api.get('/walking/')
-export const createWalkingSession = (data: unknown) => api.post('/walking/', data)
-export const fetchRoute           = (id: number) => api.get(`/walking/${id}/route`)
-
-// ── 筋トレ ─────────────────────────────
-export const fetchPlans        = () => api.get('/training/plans')
-export const createPlan        = (data: unknown) => api.post('/training/plans', data)
-export const deletePlan        = (id: number) => api.delete(`/training/plans/${id}`)
-export const fetchTodaySuggest = () => api.get('/training/today-suggestion')
-export const createLog         = (data: unknown) => api.post('/training/logs', data)
-export const fetchLogs         = () => api.get('/training/logs')
-export const fetchGameStatus   = () => api.get('/training/game-status')
-
-// ── 体重 ───────────────────────────────
-export const fetchWeightHistory = (period: string) => api.get(`/weight/history?period=${period}`)
-export const createWeight       = (data: unknown) => api.post('/weight/', data)
-export const deleteWeight       = (id: number) => api.delete(`/weight/${id}`)
-
-// ── AI ────────────────────────────────
-export const fetchAiAdvice = () => api.get('/ai/advice')
-
-// ── ウォーキング削除 ───────────────────────────────────
-export const deleteWalkingSession = (id: number) => api.delete(`/walking/${id}`)
-
-// ── トレーニングログ削除 ───────────────────────────────
-export const deleteTrainingLog = (id: number) => api.delete(`/training/logs/${id}`)
-
-
-// ── 型定義（type キーワードで明示）────────
-export type MealCreate = {
-  meal_type: string
-  food_name: string
-  quantity: string
-  notes?: string
+  return res.json() as Promise<T>;
 }
 
-export type Meal = {
-  id: number
-  date: string
-  meal_type: string
-  food_name: string
-  quantity: string
-  estimated_calories: number
-  notes?: string
+// ───── 型定義 ─────
+
+export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
+
+export interface Meal {
+  id: number;
+  description: string;
+  calories: number;
+  protein_g: number | null;
+  fat_g: number | null;
+  carbs_g: number | null;
+  meal_type: string | null;
+  recorded_at: string;
 }
 
-export type WalkingSession = {
-  id: number
-  start_time: string
-  end_time: string
-  duration_minutes: number
-  distance_km: number
-  avg_speed_kmh: number
-  estimated_calories: number
-  notes?: string
-  manual_distance_km?: number  // ← 追加
+export interface TodayMeals {
+  meals: Meal[];
+  total_calories: number;
+  total_protein_g: number;
+  total_fat_g: number;
+  total_carbs_g: number;
+  calorie_goal: number;
 }
 
-export type TrainingPlan = {
-  id: number
-  name: string
-  body_part: string
-  exercises: Exercise[]
-  day_of_week?: number
+export interface WalkingSession {
+  id: number;
+  start_time: string;
+  end_time: string | null;
+  duration_minutes: number | null;
+  distance_km: number | null;
+  avg_speed_kmh: number | null;
+  estimated_calories: number | null;
+  route_data: string | null;
 }
 
-export type Exercise = {
-  name: string
-  sets: number
-  reps: number
-  weight_kg?: number
+export interface TrainingPlan {
+  id: number;
+  name: string;
+  target_muscle: string;
+  day_of_week: number | null;
+  exercises: string;
+  fitness_level: string | null;
+  goal: string | null;
 }
 
-export type WeightRecord = {
-  id: number
-  date: string
-  weight_kg: number
-  body_fat_pct?: number
-  notes?: string
+export interface TrainingLog {
+  id: number;
+  plan_id: number;
+  logged_at: string;
+  duration_minutes: number | null;
+  notes: string | null;
 }
 
-export type GameStatus = {
-  total_xp: number
-  level: number
-  streak_days: number
-  next_level_xp: number
-  badges: string[]
+export interface GameStatus {
+  total_xp: number;
+  next_level_xp: number;
+  level: number;
+  streak_days: number;
+  badges: string[];
 }
 
-
-// ── AI プラン生成 ──────────────────────────────────────
-export const generateAiPlan = (data: AiPlanRequest) =>
-  api.post('/ai/generate-plan', data)
-
-export type AiPlanRequest = {
-  fitness_level: 'beginner' | 'intermediate' | 'advanced'
-  goal: 'diet' | 'muscle' | 'health'
-  available_days: number
-  target_parts: string[]
-  equipment: 'none' | 'dumbbell' | 'gym'
-  minutes_per_session: number
-  notes?: string
+export interface WeightRecord {
+  id: number;
+  weight_kg: number;
+  body_fat_percent: number | null;
+  recorded_at: string;
 }
 
-// ── 食事画像解析 ───────────────────────────────────────
-export const analyzeFoodImage = (file: File, mealType: string) => {
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('meal_type', mealType)
-  return api.post('/meals/analyze-image', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+export interface WeightGoal {
+  target_weight_kg: number;
+  predicted_date: string | null;
+  current_weight_kg: number | null;
 }
 
-export const createMealWithCalories = (data: MealCreateWithCalories) =>
-  api.post('/meals/with-calories', data)
-
-export type MealCreateWithCalories = {
-  meal_type: string
-  food_name: string
-  quantity: string
-  estimated_calories: number
-  notes?: string
+export interface UserProfile {
+  id: number;
+  username: string;
+  age: number | null;
+  gender: "male" | "female" | null;
+  height_cm: number | null;
+  current_weight_kg: number | null;
+  activity_level: "sedentary" | "light" | "moderate" | "active" | "very_active" | null;
+  goal: "lose" | "maintain" | "gain" | null;
+  calorie_goal: number;
 }
 
-export type ImageAnalysisResult = {
-  meal_type: string
-  food_name: string
-  quantity: string
-  estimated_calories: number
-  description: string
+export interface ProfileUpdateRequest {
+  age?: number;
+  gender?: "male" | "female";
+  height_cm?: number;
+  current_weight_kg?: number;
+  activity_level?: "sedentary" | "light" | "moderate" | "active" | "very_active";
+  goal?: "lose" | "maintain" | "gain";
+  calorie_goal?: number;
 }
 
-// ── 目標体重 ───────────────────────────────────────────
-export const fetchWeightGoal       = () => api.get('/weight/goal')
-export const setWeightGoal         = (data: WeightGoalCreate) => api.post('/weight/goal', data)
-export const fetchPredictionData   = () => api.get('/weight/prediction-data')
+// ───── 認証 ─────
 
-export type WeightGoalCreate = {
-  target_weight_kg: number
-  target_date?: string
-}
+export const login = (username: string, password: string) =>
+  apiFetch<{ access_token: string }>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
 
-export type WeightGoal = {
-  id: number
-  target_weight_kg: number
-  target_date?: string
-}
+export const register = (username: string, password: string) =>
+  apiFetch<{ access_token: string }>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+
+export const getMe = (): Promise<UserProfile> =>
+  apiFetch("/api/auth/me");
+
+export const updateProfile = (data: ProfileUpdateRequest): Promise<UserProfile> =>
+  apiFetch("/api/auth/profile", { method: "PUT", body: JSON.stringify(data) });
+
+// ───── 食事 ─────
+
+export const getMeals = (): Promise<Meal[]> =>
+  apiFetch("/api/meals/");
+
+export const getTodayMeals = (): Promise<TodayMeals> =>
+  apiFetch("/api/meals/today");
+
+export const createMealFromText = (description: string, meal_type?: string): Promise<Meal> =>
+  apiFetch("/api/meals/", {
+    method: "POST",
+    body: JSON.stringify({ description, meal_type }),
+  });
+
+export const createMealWithCalories = (data: {
+  description: string;
+  calories: number;
+  protein_g?: number | null;
+  fat_g?: number | null;
+  carbs_g?: number | null;
+  meal_type?: string;
+}): Promise<Meal> =>
+  apiFetch("/api/meals/with-calories", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const analyzeMealImage = async (file: File) => {
+  const token = localStorage.getItem("token");
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${BASE_URL}/api/meals/analyze-image`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (res.status === 401) {
+    localStorage.removeItem("token");
+    window.location.href = "/login";
+    throw new Error("Unauthorized");
+  }
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
+
+export const deleteMeal = (id: number): Promise<{ ok: boolean }> =>
+  apiFetch(`/api/meals/${id}`, { method: "DELETE" });
+
+// ───── ウォーキング ─────
+
+export const getWalkingSessions = (): Promise<WalkingSession[]> =>
+  apiFetch("/api/walking/");
+
+export const createWalkingSession = (data: Partial<WalkingSession>): Promise<WalkingSession> =>
+  apiFetch("/api/walking/", { method: "POST", body: JSON.stringify(data) });
+
+export const getWalkingRoute = (id: number) =>
+  apiFetch<{ route_data: string }>(`/api/walking/${id}/route`);
+
+export const deleteWalking = (id: number): Promise<{ ok: boolean }> =>
+  apiFetch(`/api/walking/${id}`, { method: "DELETE" });
+
+// ───── 筋トレ ─────
+
+export const getTrainingPlans = (): Promise<TrainingPlan[]> =>
+  apiFetch("/api/training/plans");
+
+export const createTrainingPlan = (data: Partial<TrainingPlan>): Promise<TrainingPlan> =>
+  apiFetch("/api/training/plans", { method: "POST", body: JSON.stringify(data) });
+
+export const deleteTrainingPlan = (id: number): Promise<{ ok: boolean }> =>
+  apiFetch(`/api/training/plans/${id}`, { method: "DELETE" });
+
+export const getTrainingLogs = (): Promise<TrainingLog[]> =>
+  apiFetch("/api/training/logs");
+
+export const createTrainingLog = (data: Partial<TrainingLog>): Promise<TrainingLog> =>
+  apiFetch("/api/training/logs", { method: "POST", body: JSON.stringify(data) });
+
+export const deleteTrainingLog = (id: number): Promise<{ ok: boolean }> =>
+  apiFetch(`/api/training/logs/${id}`, { method: "DELETE" });
+
+export const getGameStatus = (): Promise<GameStatus> =>
+  apiFetch("/api/training/game-status");
+
+export const getTodaySuggestion = (): Promise<TrainingPlan | null> =>
+  apiFetch("/api/training/today-suggestion");
+
+export const generateTrainingPlan = (params: {
+  fitness_level: string;
+  goal: string;
+  equipment: string;
+  duration_minutes: number;
+}) =>
+  apiFetch<{ plans: TrainingPlan[] }>("/api/ai/generate-plan", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+
+// ───── 体重 ─────
+
+export const getWeightHistory = (period?: string): Promise<WeightRecord[]> =>
+  apiFetch(`/api/weight/history${period ? `?period=${period}` : ""}`);
+
+export const createWeightRecord = (data: {
+  weight_kg: number;
+  body_fat_percent?: number;
+}): Promise<WeightRecord> =>
+  apiFetch("/api/weight/", { method: "POST", body: JSON.stringify(data) });
+
+export const deleteWeightRecord = (id: number): Promise<{ ok: boolean }> =>
+  apiFetch(`/api/weight/${id}`, { method: "DELETE" });
+
+export const getWeightGoal = (): Promise<WeightGoal> =>
+  apiFetch("/api/weight/goal");
+
+export const setWeightGoal = (target_weight_kg: number): Promise<WeightGoal> =>
+  apiFetch("/api/weight/goal", {
+    method: "POST",
+    body: JSON.stringify({ target_weight_kg }),
+  });
+
+export const getWeightPredictionData = () =>
+  apiFetch<{ actual: WeightRecord[]; prediction: { date: string; weight_kg: number }[] }>(
+    "/api/weight/prediction-data"
+  );
+
+// ───── AI ─────
+
+export const getAiAdvice = (): Promise<{ advice: string }> =>
+  apiFetch("/api/ai/advice");
