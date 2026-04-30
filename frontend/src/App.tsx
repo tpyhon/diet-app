@@ -1,13 +1,13 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
 import { Home, UtensilsCrossed, Footprints, Dumbbell, Scale, Bot } from 'lucide-react'
-import Dashboard from './pages/Dashboard'
-import MealPage  from './pages/MealPage'
+import Dashboard  from './pages/Dashboard'
+import MealPage   from './pages/MealPage'
+import WeightPage from './pages/WeightPage'
+import AiPage     from './pages/AiPage'
 
-// 未実装ページは仮表示
+// 未実装ページ
 const WalkingPage  = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">🚶 ウォーキング（実装予定）</h1></div>
 const TrainingPage = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">💪 筋トレ（実装予定）</h1></div>
-const WeightPage   = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">⚖️ 体重記録（実装予定）</h1></div>
-const AiPage       = () => <div className="p-4"><h1 className="text-2xl font-bold text-green-600">🤖 AIアドバイス（実装予定）</h1></div>
 
 const navItems = [
   { to: '/',         icon: Home,            label: 'ホーム'   },
@@ -37,7 +37,8 @@ export default function App() {
         </Routes>
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center h-16 shadow-lg z-50">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200
+                      flex justify-around items-center h-16 shadow-lg z-50">
         {navItems.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
