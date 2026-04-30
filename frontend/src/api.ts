@@ -117,3 +117,32 @@ export type AiPlanRequest = {
   minutes_per_session: number
   notes?: string
 }
+
+// ── 食事画像解析 ───────────────────────────────────────
+export const analyzeFoodImage = (file: File, mealType: string) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('meal_type', mealType)
+  return api.post('/meals/analyze-image', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
+export const createMealWithCalories = (data: MealCreateWithCalories) =>
+  api.post('/meals/with-calories', data)
+
+export type MealCreateWithCalories = {
+  meal_type: string
+  food_name: string
+  quantity: string
+  estimated_calories: number
+  notes?: string
+}
+
+export type ImageAnalysisResult = {
+  meal_type: string
+  food_name: string
+  quantity: string
+  estimated_calories: number
+  description: string
+}

@@ -1,10 +1,13 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchMeals, createMeal, deleteMeal } from '../api'
-import type { Meal } from '../api'   // ← type インポートに変更
+import { fetchMeals, createMeal, deleteMeal, analyzeFoodImage, createMealWithCalories } from '../api'
+import type { Meal, ImageAnalysisResult } from '../api'
 import toast from 'react-hot-toast'
-import { Plus, Trash2, Loader2, UtensilsCrossed } from 'lucide-react'
-
+import {
+  Plus, Trash2, Loader2, UtensilsCrossed,
+  Camera, Type, ChevronDown, ChevronUp,
+  CheckCircle2, RefreshCw, X
+} from 'lucide-react'
 
 const MEAL_TYPES = [
   { value: 'breakfast', label: '🌅 朝食' },
@@ -12,12 +15,280 @@ const MEAL_TYPES = [
   { value: 'dinner',    label: '🌙 夕食' },
   { value: 'snack',     label: '🍪 間食' },
 ]
-
 const MEAL_TYPE_LABELS: Record<string, string> = {
   breakfast: '朝食', lunch: '昼食', dinner: '夕食', snack: '間食'
 }
 
-// 食事追加フォーム
+// ── 画像解析フォーム ─────────────────────────────────────
+function ImageAnalysisForm({ onClose }: { onClose: () => void }) {
+  const [mealType, setMealType] = useState('lunch')
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
+  const [result, setResult] = useState<ImageAnalysisResult | null>(null)
+  const [editedResult, setEditedResult] = useState<ImageAnalysisResult | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const queryClient = useQueryClient()
+
+  // 画像解析
+  const analyzeMutation = useMutation({
+    mutationFn: ({ file, type }: { file: File; type: string }) =>
+      analyzeFoodImage(file, type).then(r => r.data),
+    onSuccess: (data: ImageAnalysisResult) => {
+      setResult(data)
+      setEditedResult(data)
+      toast.success('画像を解析しました！')
+    },
+    onError: () => toast.error('画像の解析に失敗しました'),
+  })
+
+  // 確認後保存
+  const saveMutation = useMutation({
+    mutationFn: createMealWithCalories,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meals'] })
+      queryClient.invalidateQueries({ queryKey: ['todayMeals'] })
+      toast.success('食事を記録しました！')
+      onClose()
+    },
+    onError: () => toast.error('保存に失敗しました'),
+  })
+
+  const handleFileSelect = (file: File) => {
+    setSelectedFile(file)
+    setResult(null)
+    setEditedResult(null)
+    const reader = new FileReader()
+    reader.onload = e => setPreview(e.target?.result as string)
+    reader.readAsDataURL(file)
+  }
+
+  const handleAnalyze = () => {
+    if (!selectedFile) { toast.error('画像を選択してください'); return }
+    analyzeMutation.mutate({ file: selectedFile, type: mealType })
+  }
+
+  const handleSave = () => {
+    if (!editedResult) return
+    saveMutation.mutate({
+      meal_type: mealType,
+      food_name: editedResult.food_name,
+      quantity: editedResult.quantity,
+      estimated_calories: editedResult.estimated_calories,
+      notes: editedResult.description || undefined,
+    })
+  }
+
+  return (
+    <div className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-gray-700 flex items-center gap-2">
+          <Camera size={18} className="text-orange-500" />
+          写真からカロリー推定
+        </h3>
+        <button onClick={onClose} className="text-gray-300 hover:text-gray-500 p-1">
+          <X size={18} />
+        </button>
+      </div>
+
+      {/* 食事タイプ */}
+      <div className="grid grid-cols-4 gap-2">
+        {MEAL_TYPES.map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setMealType(value)}
+            className={`py-2 rounded-xl text-xs font-medium transition-all
+              ${mealType === value
+                ? 'bg-orange-500 text-white shadow-sm'
+                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* 画像選択エリア */}
+      {!preview ? (
+        <div className="space-y-2">
+          {/* カメラで撮影（スマホ） */}
+          <button
+            onClick={() => cameraInputRef.current?.click()}
+            className="w-full py-4 border-2 border-dashed border-orange-200
+                       rounded-2xl text-orange-400 hover:border-orange-300
+                       hover:bg-orange-50 transition-all flex items-center
+                       justify-center gap-2 text-sm font-medium"
+          >
+            <Camera size={20} />
+            カメラで撮影
+          </button>
+          {/* ファイルから選択 */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full py-3 border-2 border-dashed border-gray-200
+                       rounded-2xl text-gray-400 hover:border-gray-300
+                       hover:bg-gray-50 transition-all flex items-center
+                       justify-center gap-2 text-sm"
+          >
+            <Plus size={16} />
+            ライブラリから選択
+          </button>
+          {/* hidden inputs */}
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+          />
+        </div>
+      ) : (
+        /* プレビュー表示 */
+        <div className="relative">
+          <img
+            src={preview}
+            alt="食事プレビュー"
+            className="w-full h-48 object-cover rounded-xl"
+          />
+          <button
+            onClick={() => {
+              setPreview(null)
+              setSelectedFile(null)
+              setResult(null)
+              setEditedResult(null)
+            }}
+            className="absolute top-2 right-2 bg-black/50 text-white
+                       rounded-full p-1 hover:bg-black/70"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* 解析ボタン */}
+      {preview && !result && (
+        <button
+          onClick={handleAnalyze}
+          disabled={analyzeMutation.isPending}
+          className="w-full py-3 bg-orange-500 text-white rounded-xl font-semibold
+                     hover:bg-orange-600 disabled:opacity-50
+                     flex items-center justify-center gap-2"
+        >
+          {analyzeMutation.isPending ? (
+            <><Loader2 size={16} className="animate-spin" />Gemmaが解析中...</>
+          ) : (
+            <><Camera size={16} />AIで料理を認識する</>
+          )}
+        </button>
+      )}
+
+      {/* 解析結果 */}
+      {result && editedResult && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <CheckCircle2 size={16} className="text-green-500" />
+            解析結果（編集できます）
+          </div>
+
+          {/* 料理名 */}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">料理名</label>
+            <input
+              type="text"
+              value={editedResult.food_name}
+              onChange={e => setEditedResult(r => r ? { ...r, food_name: e.target.value } : r)}
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm
+                         focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+          </div>
+
+          {/* 量 */}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">量</label>
+            <input
+              type="text"
+              value={editedResult.quantity}
+              onChange={e => setEditedResult(r => r ? { ...r, quantity: e.target.value } : r)}
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm
+                         focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+          </div>
+
+          {/* カロリー */}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">推定カロリー (kcal)</label>
+            <div className="relative">
+              <input
+                type="number"
+                value={editedResult.estimated_calories}
+                onChange={e => setEditedResult(r => r
+                  ? { ...r, estimated_calories: parseFloat(e.target.value) || 0 }
+                  : r
+                )}
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm
+                           focus:outline-none focus:ring-2 focus:ring-orange-400 pr-16"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2
+                               text-gray-400 text-sm">kcal</span>
+            </div>
+          </div>
+
+          {/* 説明 */}
+          {editedResult.description && (
+            <div className="bg-orange-50 rounded-xl px-4 py-3 text-xs text-orange-700">
+              💡 {editedResult.description}
+            </div>
+          )}
+
+          {/* 再解析ボタン */}
+          <button
+            onClick={handleAnalyze}
+            disabled={analyzeMutation.isPending}
+            className="w-full py-2 border border-orange-200 text-orange-500
+                       rounded-xl text-xs hover:bg-orange-50 transition-colors
+                       flex items-center justify-center gap-1"
+          >
+            <RefreshCw size={12} />
+            再解析する
+          </button>
+
+          {/* 保存ボタン */}
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 py-3 rounded-xl border border-gray-200
+                         text-gray-500 text-sm"
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saveMutation.isPending}
+              className="flex-1 py-3 rounded-xl bg-green-600 text-white
+                         text-sm font-semibold hover:bg-green-700
+                         disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saveMutation.isPending
+                ? <><Loader2 size={16} className="animate-spin" />保存中...</>
+                : <><CheckCircle2 size={16} />この内容で記録する</>
+              }
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── テキスト入力フォーム ──────────────────────────────────
 function AddMealForm({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState({ meal_type: 'lunch', food_name: '', quantity: '' })
   const queryClient = useQueryClient()
@@ -43,13 +314,19 @@ function AddMealForm({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
-      <h3 className="font-semibold text-gray-700 flex items-center gap-2">
-        <Plus size={18} className="text-green-600" />
-        食事を追加
-      </h3>
+    <form onSubmit={handleSubmit}
+      className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-gray-700 flex items-center gap-2">
+          <Type size={18} className="text-green-600" />
+          テキストで入力
+        </h3>
+        <button type="button" onClick={onClose}
+          className="text-gray-300 hover:text-gray-500 p-1">
+          <X size={18} />
+        </button>
+      </div>
 
-      {/* 食事タイプ選択 */}
       <div className="grid grid-cols-4 gap-2">
         {MEAL_TYPES.map(({ value, label }) => (
           <button
@@ -66,27 +343,27 @@ function AddMealForm({ onClose }: { onClose: () => void }) {
         ))}
       </div>
 
-      {/* 食品名 */}
       <div>
         <label className="text-xs text-gray-500 mb-1 block">食品名・メニュー名</label>
         <input
           type="text"
-          placeholder="例：ざるそば、おにぎり（鮭）、チキン定食"
+          placeholder="例：ざるそば、おにぎり（鮭）"
           value={form.food_name}
           onChange={e => setForm(f => ({ ...f, food_name: e.target.value }))}
-          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm
+                     focus:outline-none focus:ring-2 focus:ring-green-400"
         />
       </div>
 
-      {/* 量 */}
       <div>
         <label className="text-xs text-gray-500 mb-1 block">量・サイズ</label>
         <input
           type="text"
-          placeholder="例：1人前、200g、普通盛り、Mサイズ"
+          placeholder="例：1人前、200g、普通盛り"
           value={form.quantity}
           onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))}
-          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm
+                     focus:outline-none focus:ring-2 focus:ring-green-400"
         />
       </div>
 
@@ -94,26 +371,21 @@ function AddMealForm({ onClose }: { onClose: () => void }) {
         💡 AI（Gemma）が食品名と量からカロリーを自動推定します
       </div>
 
-      {/* ボタン */}
       <div className="flex gap-3">
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-500 text-sm hover:bg-gray-50"
-        >
+        <button type="button" onClick={onClose}
+          className="flex-1 py-3 rounded-xl border border-gray-200
+                     text-gray-500 text-sm hover:bg-gray-50">
           キャンセル
         </button>
         <button
           type="submit"
           disabled={mutation.isPending}
-          className="flex-1 py-3 rounded-xl bg-green-600 text-white text-sm font-semibold
-                     hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+          className="flex-1 py-3 rounded-xl bg-green-600 text-white text-sm
+                     font-semibold hover:bg-green-700 disabled:opacity-50
+                     flex items-center justify-center gap-2"
         >
           {mutation.isPending ? (
-            <>
-              <Loader2 size={16} className="animate-spin" />
-              AI推定中...
-            </>
+            <><Loader2 size={16} className="animate-spin" />AI推定中...</>
           ) : '記録する'}
         </button>
       </div>
@@ -121,7 +393,7 @@ function AddMealForm({ onClose }: { onClose: () => void }) {
   )
 }
 
-// 日付グループ化ヘルパー
+// ── 日付グループ化 ───────────────────────────────────────
 function groupByDate(meals: Meal[]) {
   return meals.reduce((acc, meal) => {
     const date = new Date(meal.date).toLocaleDateString('ja-JP', {
@@ -133,8 +405,9 @@ function groupByDate(meals: Meal[]) {
   }, {} as Record<string, Meal[]>)
 }
 
+// ── メインページ ─────────────────────────────────────────
 export default function MealPage() {
-  const [showForm, setShowForm] = useState(false)
+  const [showMode, setShowMode] = useState<'none' | 'text' | 'image'>('none')
   const queryClient = useQueryClient()
 
   const { data: meals = [], isLoading } = useQuery({
@@ -162,17 +435,41 @@ export default function MealPage() {
           <UtensilsCrossed className="text-green-600" size={22} />
           食事記録
         </h2>
-        <button
-          onClick={() => setShowForm(v => !v)}
-          className="flex items-center gap-1 bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
-        >
-          <Plus size={16} />
-          追加
-        </button>
+        <div className="flex gap-2">
+          {/* 写真ボタン */}
+          <button
+            onClick={() => setShowMode(m => m === 'image' ? 'none' : 'image')}
+            className={`flex items-center gap-1 px-3 py-2 rounded-xl text-sm
+                        font-semibold transition-colors
+                        ${showMode === 'image'
+                          ? 'bg-orange-500 text-white'
+                          : 'bg-orange-100 text-orange-600 hover:bg-orange-200'}`}
+          >
+            <Camera size={15} />
+            写真
+          </button>
+          {/* テキストボタン */}
+          <button
+            onClick={() => setShowMode(m => m === 'text' ? 'none' : 'text')}
+            className={`flex items-center gap-1 px-3 py-2 rounded-xl text-sm
+                        font-semibold transition-colors
+                        ${showMode === 'text'
+                          ? 'bg-green-600 text-white'
+                          : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
+          >
+            <Type size={15} />
+            テキスト
+          </button>
+        </div>
       </div>
 
-      {/* 追加フォーム */}
-      {showForm && <AddMealForm onClose={() => setShowForm(false)} />}
+      {/* フォーム表示 */}
+      {showMode === 'image' && (
+        <ImageAnalysisForm onClose={() => setShowMode('none')} />
+      )}
+      {showMode === 'text' && (
+        <AddMealForm onClose={() => setShowMode('none')} />
+      )}
 
       {/* ローディング */}
       {isLoading && (
@@ -181,37 +478,43 @@ export default function MealPage() {
         </div>
       )}
 
-      {/* 食事リスト（日付グループ） */}
+      {/* 食事リスト */}
       {Object.entries(grouped).map(([date, dateMeals]) => {
         const dayTotal = dateMeals.reduce((s, m) => s + (m.estimated_calories ?? 0), 0)
         return (
           <div key={date} className="bg-white rounded-2xl shadow-sm overflow-hidden">
-            {/* 日付ヘッダー */}
-            <div className="flex justify-between items-center px-4 py-3 bg-gray-50 border-b border-gray-100">
+            <div className="flex justify-between items-center px-4 py-3
+                            bg-gray-50 border-b border-gray-100">
               <span className="text-sm font-semibold text-gray-600">{date}</span>
-              <span className="text-sm font-bold text-orange-500">{Math.round(dayTotal)} kcal</span>
+              <span className="text-sm font-bold text-orange-500">
+                {Math.round(dayTotal)} kcal
+              </span>
             </div>
-            {/* 食事アイテム */}
             <div className="divide-y divide-gray-50">
               {dateMeals.map(meal => (
                 <div key={meal.id} className="flex items-center gap-3 px-4 py-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 shrink-0">
+                      <span className="text-xs bg-green-100 text-green-700
+                                       rounded-full px-2 py-0.5 shrink-0">
                         {MEAL_TYPE_LABELS[meal.meal_type] ?? meal.meal_type}
                       </span>
-                      <span className="text-sm font-medium text-gray-800 truncate">{meal.food_name}</span>
+                      <span className="text-sm font-medium text-gray-800 truncate">
+                        {meal.food_name}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-gray-400">
                       <span>{meal.quantity}</span>
                       <span>·</span>
-                      <span className="text-orange-400 font-semibold">{Math.round(meal.estimated_calories)} kcal</span>
+                      <span className="text-orange-400 font-semibold">
+                        {Math.round(meal.estimated_calories)} kcal
+                      </span>
                     </div>
                   </div>
                   <button
                     onClick={() => deleteMutation.mutate(meal.id)}
-                    disabled={deleteMutation.isPending}
-                    className="p-2 text-gray-300 hover:text-red-400 transition-colors rounded-lg hover:bg-red-50"
+                    className="p-2 text-gray-300 hover:text-red-400
+                               transition-colors rounded-lg hover:bg-red-50"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -223,11 +526,11 @@ export default function MealPage() {
       })}
 
       {/* 空状態 */}
-      {!isLoading && meals.length === 0 && !showForm && (
+      {!isLoading && meals.length === 0 && showMode === 'none' && (
         <div className="text-center py-16 text-gray-400">
           <UtensilsCrossed size={48} className="mx-auto mb-3 opacity-30" />
           <p className="text-sm">食事の記録がありません</p>
-          <p className="text-xs mt-1">「追加」ボタンから記録しましょう</p>
+          <p className="text-xs mt-1">📸 写真 または ✏️ テキストから記録しましょう</p>
         </div>
       )}
 
