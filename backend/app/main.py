@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from app.database import Base, engine
 from app.routers import meals, walking, training, weight, ai_advice
+from app.database import Base, engine
+from app.models import meal, walking, training, weight  # 全モデルをimport
+
 
 load_dotenv()
 

@@ -146,3 +146,19 @@ export type ImageAnalysisResult = {
   estimated_calories: number
   description: string
 }
+
+// ── 目標体重 ───────────────────────────────────────────
+export const fetchWeightGoal       = () => api.get('/weight/goal')
+export const setWeightGoal         = (data: WeightGoalCreate) => api.post('/weight/goal', data)
+export const fetchPredictionData   = () => api.get('/weight/prediction-data')
+
+export type WeightGoalCreate = {
+  target_weight_kg: number
+  target_date?: string
+}
+
+export type WeightGoal = {
+  id: number
+  target_weight_kg: number
+  target_date?: string
+}
