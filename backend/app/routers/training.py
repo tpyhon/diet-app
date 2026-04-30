@@ -2,14 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, date
+from datetime import datetime
 import json
 from app.database import get_db
 from app.models.training import TrainingPlan, TrainingLog, UserGameStatus
+from app.models.user import User
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/training", tags=["training"])
 
-# XP設定
 XP_PER_WORKOUT = 50
 XP_STREAK_BONUS = 20
 LEVEL_THRESHOLDS = [0, 100, 250, 500, 900, 1400, 2000, 2700, 3500, 4500, 6000]
@@ -22,7 +23,7 @@ class ExerciseItem(BaseModel):
 
 class PlanCreate(BaseModel):
     name: str
-    body_part: str  # arms/chest/abs/back/legs
+    body_part: str
     exercises: List[ExerciseItem]
     day_of_week: Optional[int] = None
 
@@ -40,8 +41,13 @@ def get_level(xp: int) -> int:
     return 1
 
 @router.post("/plans")
-def create_plan(plan: PlanCreate, db: Session = Depends(get_db)):
+def create_plan(
+    plan: PlanCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
     db_plan = TrainingPlan(
+        user_id=current_user.id,               # ← 追加
         name=plan.name,
         body_part=plan.body_part,
         exercises_json=json.dumps([e.model_dump() for e in plan.exercises]),
@@ -53,8 +59,13 @@ def create_plan(plan: PlanCreate, db: Session = Depends(get_db)):
     return db_plan
 
 @router.get("/plans")
-def get_plans(db: Session = Depends(get_db)):
-    plans = db.query(TrainingPlan).all()
+def get_plans(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
+    plans = db.query(TrainingPlan).filter(
+        TrainingPlan.user_id == current_user.id        # ← 追加
+    ).all()
     result = []
     for p in plans:
         d = {c.name: getattr(p, c.name) for c in p.__table__.columns}
@@ -63,17 +74,25 @@ def get_plans(db: Session = Depends(get_db)):
     return result
 
 @router.get("/today-suggestion")
-def get_today_suggestion(db: Session = Depends(get_db)):
-    """今日の曜日に対応するプランを提案"""
-    today_dow = datetime.now().weekday()  # 0=月曜
+def get_today_suggestion(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
+    today_dow = datetime.now().weekday()
     plans = db.query(TrainingPlan).filter(
+        TrainingPlan.user_id == current_user.id,       # ← 追加
         TrainingPlan.day_of_week == today_dow
     ).all()
     return {"day_of_week": today_dow, "suggested_plans": plans}
 
 @router.post("/logs")
-def create_log(log: LogCreate, db: Session = Depends(get_db)):
+def create_log(
+    log: LogCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
     db_log = TrainingLog(
+        user_id=current_user.id,               # ← 追加
         plan_id=log.plan_id,
         body_part=log.body_part,
         exercises_json=json.dumps([e.model_dump() for e in log.exercises]),
@@ -84,10 +103,17 @@ def create_log(log: LogCreate, db: Session = Depends(get_db)):
     )
     db.add(db_log)
 
-    # ゲームステータス更新
-    status = db.query(UserGameStatus).first()
+    # ゲームステータス更新（user_idでフィルタ）
+    status = db.query(UserGameStatus).filter(
+        UserGameStatus.user_id == current_user.id      # ← .first()から変更
+    ).first()
     if not status:
-        status = UserGameStatus(total_xp=0, level=1, streak_days=0)
+        status = UserGameStatus(
+            user_id=current_user.id,                   # ← 追加
+            total_xp=0,
+            level=1,
+            streak_days=0
+        )
         db.add(status)
 
     status.total_xp += XP_PER_WORKOUT
@@ -109,8 +135,13 @@ def create_log(log: LogCreate, db: Session = Depends(get_db)):
     return {"log": db_log, "game_status": status}
 
 @router.get("/game-status")
-def get_game_status(db: Session = Depends(get_db)):
-    status = db.query(UserGameStatus).first()
+def get_game_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
+    status = db.query(UserGameStatus).filter(
+        UserGameStatus.user_id == current_user.id      # ← 追加
+    ).first()
     if not status:
         return {"total_xp": 0, "level": 1, "streak_days": 0, "badges": []}
     next_level_xp = LEVEL_THRESHOLDS[min(status.level, len(LEVEL_THRESHOLDS)-1)]
@@ -123,14 +154,47 @@ def get_game_status(db: Session = Depends(get_db)):
     }
 
 @router.get("/logs")
-def get_logs(limit: int = 30, db: Session = Depends(get_db)):
-    return db.query(TrainingLog).order_by(TrainingLog.date.desc()).limit(limit).all()
+def get_logs(
+    limit: int = 30,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
+    return (
+        db.query(TrainingLog)
+        .filter(TrainingLog.user_id == current_user.id)  # ← 追加
+        .order_by(TrainingLog.date.desc())
+        .limit(limit)
+        .all()
+    )
 
 @router.delete("/logs/{log_id}")
-def delete_log(log_id: int, db: Session = Depends(get_db)):
-    log = db.query(TrainingLog).filter(TrainingLog.id == log_id).first()
+def delete_log(
+    log_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
+    log = db.query(TrainingLog).filter(
+        TrainingLog.id == log_id,
+        TrainingLog.user_id == current_user.id,       # ← 追加
+    ).first()
     if not log:
         raise HTTPException(status_code=404, detail="Not found")
     db.delete(log)
+    db.commit()
+    return {"ok": True}
+
+@router.delete("/plans/{plan_id}")
+def delete_plan(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
+    plan = db.query(TrainingPlan).filter(
+        TrainingPlan.id == plan_id,
+        TrainingPlan.user_id == current_user.id,      # ← 追加
+    ).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete(plan)
     db.commit()
     return {"ok": True}

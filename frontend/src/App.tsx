@@ -1,11 +1,13 @@
-import { Routes, Route, NavLink } from 'react-router-dom'
-import { Home, UtensilsCrossed, Footprints, Dumbbell, Scale, Bot } from 'lucide-react'
+import { useState } from 'react'
+import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { Home, UtensilsCrossed, Footprints, Dumbbell, Scale, Bot, LogOut } from 'lucide-react'
 import Dashboard    from './pages/Dashboard'
 import MealPage     from './pages/MealPage'
 import WeightPage   from './pages/WeightPage'
 import AiPage       from './pages/AiPage'
 import TrainingPage from './pages/TrainingPage'
 import WalkingPage  from './pages/WalkingPage'
+import LoginPage    from './pages/LoginPage'
 
 const navItems = [
   { to: '/',         icon: Home,            label: 'ホーム'   },
@@ -17,11 +19,39 @@ const navItems = [
 ]
 
 export default function App() {
+  const [token, setToken] = useState<string | null>(
+    localStorage.getItem('access_token')
+  )
+  const [user, setUser] = useState<{ username: string; display_name: string } | null>(
+    JSON.parse(localStorage.getItem('user') || 'null')
+  )
+
+  const handleLogin = (newToken: string, newUser: { username: string; display_name: string }) => {
+    setToken(newToken)
+    setUser(newUser)
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('user')
+    setToken(null)
+    setUser(null)
+  }
+
+  if (!token) {
+    return <LoginPage onLogin={handleLogin} />
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
-
-      <header className="bg-green-600 text-white px-4 py-3 shadow-md">
+      <header className="bg-green-600 text-white px-4 py-3 shadow-md flex justify-between items-center">
         <h1 className="text-lg font-bold tracking-wide">💪 My Diet App</h1>
+        <div className="flex items-center gap-2 text-sm">
+          <span>{user?.display_name || user?.username}</span>
+          <button onClick={handleLogout} className="hover:text-green-200 transition-colors">
+            <LogOut size={18} />
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 pb-20 overflow-y-auto">
@@ -32,6 +62,7 @@ export default function App() {
           <Route path="/training" element={<TrainingPage />} />
           <Route path="/weight"   element={<WeightPage />}   />
           <Route path="/ai"       element={<AiPage />}       />
+          <Route path="*"         element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
@@ -52,7 +83,6 @@ export default function App() {
           </NavLink>
         ))}
       </nav>
-
     </div>
   )
 }

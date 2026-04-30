@@ -6,29 +6,45 @@ from app.models.meal import Meal
 from app.models.walking import WalkingSession
 from app.models.training import TrainingLog, TrainingPlan
 from app.models.weight import WeightRecord
+from app.models.user import User
+from app.auth import get_current_user
 from google import genai
 from google.genai import types
+from pydantic import BaseModel
+from typing import Optional
 import os, json
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
-# ── 既存の /advice エンドポイント（変更なし）──────────────
 @router.get("/advice")
-async def get_advice(db: Session = Depends(get_db)):
+async def get_advice(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
     since = datetime.now() - timedelta(days=7)
 
-    meals = db.query(Meal).filter(Meal.date >= since).all()
+    meals = db.query(Meal).filter(
+        Meal.user_id == current_user.id,               # ← 追加
+        Meal.date >= since
+    ).all()
     avg_cal = sum(m.estimated_calories or 0 for m in meals) / 7
 
-    walks = db.query(WalkingSession).filter(WalkingSession.start_time >= since).all()
+    walks = db.query(WalkingSession).filter(
+        WalkingSession.user_id == current_user.id,     # ← 追加
+        WalkingSession.start_time >= since
+    ).all()
     walk_km  = sum(w.distance_km or 0 for w in walks)
     walk_cal = sum(w.estimated_calories or 0 for w in walks)
     walk_cnt = len(walks)
 
-    trains = db.query(TrainingLog).filter(TrainingLog.date >= since).all()
+    trains = db.query(TrainingLog).filter(
+        TrainingLog.user_id == current_user.id,        # ← 追加
+        TrainingLog.date >= since
+    ).all()
     train_cnt = len(trains)
 
     weights = db.query(WeightRecord).filter(
+        WeightRecord.user_id == current_user.id,       # ← 追加
         WeightRecord.date >= since
     ).order_by(WeightRecord.date.asc()).all()
     w_start = weights[0].weight_kg if weights else None
@@ -73,31 +89,25 @@ async def get_advice(db: Session = Depends(get_db)):
     }
 
 
-# ── 新規：AIトレーニングプラン生成 ────────────────────────
-from pydantic import BaseModel
-from typing import Optional
-
 class AiPlanRequest(BaseModel):
-    fitness_level: str        # beginner / intermediate / advanced
-    goal: str                 # diet / muscle / health
-    available_days: int       # 週何日できるか (1-7)
-    target_parts: list[str]   # ["arms","chest","abs","back","legs"] から選択
-    equipment: str            # none / dumbbell / gym
-    minutes_per_session: int  # 1回あたりの時間（分）
-    notes: Optional[str] = None  # 自由記述（怪我・苦手など）
+    fitness_level: str
+    goal: str
+    available_days: int
+    target_parts: list[str]
+    equipment: str
+    minutes_per_session: int
+    notes: Optional[str] = None
 
 @router.post("/generate-plan")
 async def generate_training_plan(
     req: AiPlanRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
 ):
-    """Gemmaがユーザー情報からトレーニングプランを生成しDBに保存する"""
-
     level_map = {"beginner": "初心者", "intermediate": "中級者", "advanced": "上級者"}
     goal_map  = {"diet": "ダイエット・脂肪燃焼", "muscle": "筋肥大・筋力向上", "health": "健康維持・体力向上"}
     equip_map = {"none": "自重のみ（器具なし）", "dumbbell": "ダンベルあり", "gym": "ジム（全器具使用可）"}
     parts_map = {"arms": "腕", "chest": "胸", "abs": "腹筋", "back": "背筋", "legs": "脚"}
-
     target_str = "・".join([parts_map.get(p, p) for p in req.target_parts])
 
     prompt = f"""
@@ -115,7 +125,6 @@ async def generate_training_plan(
 
 【出力形式】
 必ず以下のJSON形式のみで返してください。説明文・マークダウン・コードブロックは不要です。
-JSONのみを返してください。
 
 {{
   "plans": [
@@ -154,10 +163,7 @@ JSONのみを返してください。
         )
     )
 
-    # JSONパース（余分なテキストを除去）
     raw = response.text.strip()
-
-    # コードブロック除去
     if "```" in raw:
         parts = raw.split("```")
         for part in parts:
@@ -167,10 +173,7 @@ JSONのみを返してください。
             if part.startswith("{"):
                 raw = part
                 break
-
     raw = raw.strip()
-
-    # JSON部分だけ抽出
     start = raw.find("{")
     end   = raw.rfind("}") + 1
     if start != -1 and end > start:
@@ -180,7 +183,6 @@ JSONのみを返してください。
         data = json.loads(raw)
     except json.JSONDecodeError as e:
         print(f"JSON parse error: {e}")
-        print(f"Raw response: {raw[:500]}")
         return {
             "error": "AIの応答をパースできませんでした",
             "raw": raw[:500],
@@ -189,9 +191,7 @@ JSONのみを返してください。
             "comment": "生成に失敗しました。もう一度お試しください。"
         }
 
-    # plansキーが存在しない場合のガード
     if "plans" not in data:
-        print(f"No 'plans' key in response: {data}")
         return {
             "error": "プランデータが見つかりませんでした",
             "saved_count": 0,
@@ -199,36 +199,27 @@ JSONのみを返してください。
             "comment": str(data)
         }
 
-
-    # DBに保存
     saved_plans = []
     for plan_data in data.get("plans", []):
         exercises = plan_data.get("exercises", [])
-        # exercisesが文字列の場合はパース
         if isinstance(exercises, str):
             try:
                 exercises = json.loads(exercises)
             except Exception:
                 exercises = []
-
         db_plan = TrainingPlan(
+            user_id=current_user.id,               # ← 追加
             name=plan_data.get("name", "AIプラン"),
             body_part=plan_data.get("body_part", "chest"),
             exercises_json=json.dumps(exercises, ensure_ascii=False),
             day_of_week=plan_data.get("day_of_week"),
         )
         db.add(db_plan)
-        # フロントに返すデータはexercisesを配列で返す
-        saved_plans.append({
-            **plan_data,
-            "exercises": exercises,
-        })
+        saved_plans.append({**plan_data, "exercises": exercises})
 
     db.commit()
-
     return {
         "saved_count": len(saved_plans),
         "plans": saved_plans,
         "comment": data.get("comment", ""),
     }
-

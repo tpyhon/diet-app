@@ -5,7 +5,41 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+// ── JWTトークンを自動付与するインターセプター ──
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('access_token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// ── 401エラー時に自動ログアウト ──
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401) {
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('user')
+      window.location.href = '/login'
+    }
+    return Promise.reject(err)
+  }
+)
+
 export default api
+
+// ── 認証 ──────────────────────────────────────
+export const loginApi = (username: string, password: string) => {
+  const form = new URLSearchParams()
+  form.append('username', username)
+  form.append('password', password)
+  return axios.post('/api/auth/login', form, {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  })
+}
+export const registerApi = (username: string, password: string, display_name?: string) =>
+  api.post('/auth/register', { username, password, display_name })
 
 // ── 食事 ──────────────────────────────
 export const fetchTodayMeals = () => api.get('/meals/today')

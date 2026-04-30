@@ -6,6 +6,8 @@ from datetime import datetime
 import json, math
 from app.database import get_db
 from app.models.walking import WalkingSession
+from app.models.user import User
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/walking", tags=["walking"])
 
@@ -19,7 +21,7 @@ class WalkingCreate(BaseModel):
     end_time: datetime
     route_points: List[GPSPoint]
     notes: Optional[str] = None
-    manual_distance_km: Optional[float] = None  # ← 追加：手動入力時の距離
+    manual_distance_km: Optional[float] = None
 
 def haversine_km(points: List[GPSPoint]) -> float:
     total, R = 0.0, 6371
@@ -35,19 +37,20 @@ def walking_calories(distance_km: float, duration_min: float) -> float:
     return round(3.5 * 60 * (duration_min / 60), 1)
 
 @router.post("/")
-def create_session(data: WalkingCreate, db: Session = Depends(get_db)):
+def create_session(
+    data: WalkingCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
     duration = (data.end_time - data.start_time).total_seconds() / 60
-
-    # 手動入力距離があればそちらを優先、なければGPSから計算
     if data.manual_distance_km is not None:
         distance = data.manual_distance_km
     else:
         distance = haversine_km(data.route_points)
-
     avg_speed = (distance / (duration / 60)) if duration > 0 else 0
     calories  = walking_calories(distance, duration)
-
     db_s = WalkingSession(
+        user_id=current_user.id,               # ← 追加
         start_time=data.start_time,
         end_time=data.end_time,
         duration_minutes=round(duration, 1),
@@ -61,20 +64,43 @@ def create_session(data: WalkingCreate, db: Session = Depends(get_db)):
     return db_s
 
 @router.get("/")
-def get_sessions(limit: int = 20, db: Session = Depends(get_db)):
-    return db.query(WalkingSession).order_by(
-        WalkingSession.start_time.desc()).limit(limit).all()
+def get_sessions(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
+    return (
+        db.query(WalkingSession)
+        .filter(WalkingSession.user_id == current_user.id)  # ← 追加
+        .order_by(WalkingSession.start_time.desc())
+        .limit(limit)
+        .all()
+    )
 
 @router.get("/{session_id}/route")
-def get_route(session_id: int, db: Session = Depends(get_db)):
-    s = db.query(WalkingSession).filter(WalkingSession.id == session_id).first()
+def get_route(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
+    s = db.query(WalkingSession).filter(
+        WalkingSession.id == session_id,
+        WalkingSession.user_id == current_user.id,   # ← 追加
+    ).first()
     if not s:
         raise HTTPException(status_code=404, detail="Not found")
     return {"route": json.loads(s.route_json) if s.route_json else []}
 
 @router.delete("/{session_id}")
-def delete_session(session_id: int, db: Session = Depends(get_db)):
-    s = db.query(WalkingSession).filter(WalkingSession.id == session_id).first()
+def delete_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # ← 追加
+):
+    s = db.query(WalkingSession).filter(
+        WalkingSession.id == session_id,
+        WalkingSession.user_id == current_user.id,   # ← 追加
+    ).first()
     if not s:
         raise HTTPException(status_code=404, detail="Not found")
     db.delete(s)
