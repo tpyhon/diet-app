@@ -1,3 +1,4 @@
+# backend/app/routers/ai_advice.py
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
@@ -16,21 +17,27 @@ import os, json
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
+
 @router.get("/advice")
 async def get_advice(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     since = datetime.now() - timedelta(days=7)
 
     meals = db.query(Meal).filter(
-        Meal.user_id == current_user.id,               # ← 追加
+        Meal.user_id == current_user.id,
         Meal.date >= since
     ).all()
-    avg_cal = sum(m.estimated_calories or 0 for m in meals) / 7
+    avg_cal     = sum(m.estimated_calories or 0 for m in meals) / 7
+    avg_protein = sum(m.protein_g or 0 for m in meals) / 7
+    avg_fat     = sum(m.fat_g     or 0 for m in meals) / 7
+    avg_carbs   = sum(m.carbs_g   or 0 for m in meals) / 7
+
+    calorie_goal = current_user.calorie_goal or 2000
 
     walks = db.query(WalkingSession).filter(
-        WalkingSession.user_id == current_user.id,     # ← 追加
+        WalkingSession.user_id == current_user.id,
         WalkingSession.start_time >= since
     ).all()
     walk_km  = sum(w.distance_km or 0 for w in walks)
@@ -38,13 +45,13 @@ async def get_advice(
     walk_cnt = len(walks)
 
     trains = db.query(TrainingLog).filter(
-        TrainingLog.user_id == current_user.id,        # ← 追加
+        TrainingLog.user_id == current_user.id,
         TrainingLog.date >= since
     ).all()
     train_cnt = len(trains)
 
     weights = db.query(WeightRecord).filter(
-        WeightRecord.user_id == current_user.id,       # ← 追加
+        WeightRecord.user_id == current_user.id,
         WeightRecord.date >= since
     ).order_by(WeightRecord.date.asc()).all()
     w_start = weights[0].weight_kg if weights else None
@@ -55,14 +62,15 @@ async def get_advice(
 以下のユーザーの過去7日間のデータを分析し、日本語で具体的なアドバイスを提供してください。
 
 【過去7日間のデータ】
-- 1日平均摂取カロリー: {avg_cal:.0f} kcal
+- 1日平均摂取カロリー: {avg_cal:.0f} kcal（目標: {calorie_goal} kcal）
+- 1日平均栄養素: タンパク質 {avg_protein:.1f}g / 脂質 {avg_fat:.1f}g / 炭水化物 {avg_carbs:.1f}g
 - ウォーキング回数: {walk_cnt}回 / 合計 {walk_km:.1f}km / 消費 {walk_cal:.0f}kcal
 - 筋トレ実施回数: {train_cnt}回
 - 体重変化: {w_start}kg → {w_end}kg
 
 【出力形式】
 ■ 今週の総評
-■ 食事アドバイス
+■ 食事アドバイス（カロリー・栄養バランスについて）
 ■ 運動アドバイス
 ■ 来週の目標（具体的に2つ）
 ■ 激励メッセージ
@@ -79,12 +87,16 @@ async def get_advice(
         "advice": response.text,
         "summary": {
             "avg_daily_calories": round(avg_cal, 1),
-            "walk_km": round(walk_km, 2),
-            "walk_calories": round(walk_cal, 1),
-            "walk_count": walk_cnt,
-            "training_count": train_cnt,
-            "weight_start": w_start,
-            "weight_end": w_end,
+            "avg_protein":        round(avg_protein, 1),
+            "avg_fat":            round(avg_fat, 1),
+            "avg_carbs":          round(avg_carbs, 1),
+            "calorie_goal":       calorie_goal,
+            "walk_km":            round(walk_km, 2),
+            "walk_calories":      round(walk_cal, 1),
+            "walk_count":         walk_cnt,
+            "training_count":     train_cnt,
+            "weight_start":       w_start,
+            "weight_end":         w_end,
         }
     }
 
@@ -102,7 +114,7 @@ class AiPlanRequest(BaseModel):
 async def generate_training_plan(
     req: AiPlanRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     level_map = {"beginner": "初心者", "intermediate": "中級者", "advanced": "上級者"}
     goal_map  = {"diet": "ダイエット・脂肪燃焼", "muscle": "筋肥大・筋力向上", "health": "健康維持・体力向上"}
@@ -174,8 +186,7 @@ async def generate_training_plan(
                 raw = part
                 break
     raw = raw.strip()
-    start = raw.find("{")
-    end   = raw.rfind("}") + 1
+    start = raw.find("{"); end = raw.rfind("}") + 1
     if start != -1 and end > start:
         raw = raw[start:end]
 
@@ -208,7 +219,7 @@ async def generate_training_plan(
             except Exception:
                 exercises = []
         db_plan = TrainingPlan(
-            user_id=current_user.id,               # ← 追加
+            user_id=current_user.id,
             name=plan_data.get("name", "AIプラン"),
             body_part=plan_data.get("body_part", "chest"),
             exercises_json=json.dumps(exercises, ensure_ascii=False),

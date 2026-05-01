@@ -1,8 +1,14 @@
+// frontend/src/pages/Dashboard.tsx
 import { useQuery } from '@tanstack/react-query'
-import { fetchTodayMeals, fetchGameStatus, fetchWeightHistory, fetchWalkingSessions } from '../api'
-import type { GameStatus } from '../api'   // ← 型は type インポート
-import { Flame, Footprints, Dumbbell, Scale, TrendingDown, TrendingUp, Minus, Trophy, Zap } from 'lucide-react'
-
+import {
+  fetchTodayMeals, fetchGameStatus, fetchWeightHistory,
+  fetchWalkingSessions, fetchProfile,
+} from '../api'
+import type { GameStatus, TodayMealsResponse, UserProfile } from '../api'
+import {
+  Flame, Footprints, Dumbbell, Scale,
+  TrendingDown, TrendingUp, Minus, Trophy, Zap,
+} from 'lucide-react'
 
 // XPバーコンポーネント
 function XpBar({ xp, nextXp, level }: { xp: number; nextXp: number; level: number }) {
@@ -26,7 +32,7 @@ function XpBar({ xp, nextXp, level }: { xp: number; nextXp: number; level: numbe
 
 // サマリーカードコンポーネント
 function SummaryCard({
-  icon, label, value, unit, color
+  icon, label, value, unit, color,
 }: {
   icon: React.ReactNode; label: string; value: string | number; unit: string; color: string
 }) {
@@ -44,8 +50,83 @@ function SummaryCard({
   )
 }
 
+// PFC バーコンポーネント
+// Dashboard.tsx 内の PfcBar コンポーネントを以下に差し替え
+
+function PfcBar({
+  protein, fat, carbs, targetProtein, targetFat, targetCarbs,
+}: {
+  protein: number; fat: number; carbs: number
+  targetProtein?: number; targetFat?: number; targetCarbs?: number
+}) {
+  const total = protein + fat + carbs
+  if (total === 0 && !targetProtein) return null
+
+  const pPct = total > 0 ? Math.round((protein / total) * 100) : 0
+  const fPct = total > 0 ? Math.round((fat    / total) * 100) : 0
+  const cPct = 100 - pPct - fPct
+
+  const remP = targetProtein ? Math.max(0, targetProtein - protein) : null
+  const remF = targetFat     ? Math.max(0, targetFat     - fat)     : null
+  const remC = targetCarbs   ? Math.max(0, targetCarbs   - carbs)   : null
+
+  return (
+    <div>
+      {total > 0 && (
+        <div className="w-full h-3 rounded-full overflow-hidden flex mb-2">
+          <div className="bg-blue-400  transition-all duration-500" style={{ width: `${pPct}%` }} />
+          <div className="bg-yellow-400 transition-all duration-500" style={{ width: `${fPct}%` }} />
+          <div className="bg-green-400  transition-all duration-500" style={{ width: `${cPct}%` }} />
+        </div>
+      )}
+      <div className="grid grid-cols-3 gap-1 text-xs">
+        {/* タンパク質 */}
+        <div className="text-center">
+          <div className="flex items-center justify-center gap-1 text-blue-400 font-medium">
+            <span className="inline-block w-2 h-2 rounded-full bg-blue-400" />
+            P
+          </div>
+          <div className="text-gray-700 font-semibold">{protein.toFixed(1)}g</div>
+          {remP !== null && (
+            <div className={`text-xs ${remP === 0 ? 'text-green-500' : 'text-gray-400'}`}>
+              {remP === 0 ? '✓ 達成' : `残 ${remP.toFixed(0)}g`}
+            </div>
+          )}
+        </div>
+        {/* 脂質 */}
+        <div className="text-center">
+          <div className="flex items-center justify-center gap-1 text-yellow-500 font-medium">
+            <span className="inline-block w-2 h-2 rounded-full bg-yellow-400" />
+            F
+          </div>
+          <div className="text-gray-700 font-semibold">{fat.toFixed(1)}g</div>
+          {remF !== null && (
+            <div className={`text-xs ${remF === 0 ? 'text-green-500' : 'text-gray-400'}`}>
+              {remF === 0 ? '✓ 達成' : `残 ${remF.toFixed(0)}g`}
+            </div>
+          )}
+        </div>
+        {/* 炭水化物 */}
+        <div className="text-center">
+          <div className="flex items-center justify-center gap-1 text-green-500 font-medium">
+            <span className="inline-block w-2 h-2 rounded-full bg-green-400" />
+            C
+          </div>
+          <div className="text-gray-700 font-semibold">{carbs.toFixed(1)}g</div>
+          {remC !== null && (
+            <div className={`text-xs ${remC === 0 ? 'text-green-500' : 'text-gray-400'}`}>
+              {remC === 0 ? '✓ 達成' : `残 ${remC.toFixed(0)}g`}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 export default function Dashboard() {
-  const { data: todayData } = useQuery({
+  const { data: todayData } = useQuery<TodayMealsResponse>({
     queryKey: ['todayMeals'],
     queryFn: () => fetchTodayMeals().then(r => r.data),
     refetchInterval: 30000,
@@ -55,7 +136,6 @@ export default function Dashboard() {
     queryKey: ['gameStatus'],
     queryFn: () => fetchGameStatus().then(r => r.data),
   })
-
 
   const { data: weightData } = useQuery({
     queryKey: ['weightHistory', '1month'],
@@ -67,8 +147,18 @@ export default function Dashboard() {
     queryFn: () => fetchWalkingSessions().then(r => r.data),
   })
 
-  const todayCalories = todayData?.total_calories ?? 0
-  const TARGET_CALORIES = 2000
+  const { data: profile } = useQuery<UserProfile>({
+    queryKey: ['profile'],
+    queryFn: () => fetchProfile().then(r => r.data),
+  })
+
+  const todayCalories  = todayData?.total_calories ?? 0
+  const todayProtein   = todayData?.total_protein  ?? 0
+  const todayFat       = todayData?.total_fat      ?? 0
+  const todayCarbs     = todayData?.total_carbs    ?? 0
+
+  // カロリー目標はプロフィールから取得（未設定なら2000）
+  const TARGET_CALORIES = profile?.calorie_goal ?? 2000
 
   const latestWeight = weightData?.length > 0 ? weightData[weightData.length - 1].weight_kg : null
   const firstWeight  = weightData?.length > 1 ? weightData[0].weight_kg : null
@@ -82,7 +172,7 @@ export default function Dashboard() {
     })
     .reduce((sum: number, w: { distance_km: number }) => sum + (w.distance_km ?? 0), 0) ?? 0
 
-  const caloriesPct = Math.min(100, Math.round((todayCalories / TARGET_CALORIES) * 100))
+  const caloriesPct   = Math.min(100, Math.round((todayCalories / TARGET_CALORIES) * 100))
   const caloriesColor = caloriesPct > 90 ? 'text-red-500' : caloriesPct > 70 ? 'text-yellow-500' : 'text-green-600'
 
   return (
@@ -90,14 +180,23 @@ export default function Dashboard() {
 
       {/* 今日の日付 */}
       <div className="text-gray-400 text-sm">
-        {new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
+        {new Date().toLocaleDateString('ja-JP', {
+          year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
+        })}
       </div>
 
       {/* 今日のカロリー進捗 */}
       <div className="bg-white rounded-2xl p-5 shadow-sm">
-        <div className="flex items-center gap-2 mb-3">
-          <Flame className="text-orange-500" size={20} />
-          <span className="font-semibold text-gray-700">今日の摂取カロリー</span>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Flame className="text-orange-500" size={20} />
+            <span className="font-semibold text-gray-700">今日の摂取カロリー</span>
+          </div>
+          {profile?.calorie_goal && (
+            <span className="text-xs bg-orange-50 text-orange-500 rounded-full px-2 py-0.5 font-medium">
+              目標 {TARGET_CALORIES} kcal
+            </span>
+          )}
         </div>
         <div className="flex items-end gap-2 mb-3">
           <span className={`text-4xl font-bold ${caloriesColor}`}>
@@ -114,6 +213,22 @@ export default function Dashboard() {
           />
         </div>
         <div className="text-right text-xs text-gray-400 mt-1">{caloriesPct}%</div>
+
+        {/* PFCバー */}
+        {(todayProtein > 0 || todayFat > 0 || todayCarbs > 0 || profile?.recommended_pfc) && (
+          <div className="mt-4 pt-4 border-t border-gray-50">
+            <p className="text-xs text-gray-400 mb-2 font-medium">今日のPFCバランス</p>
+            <PfcBar
+              protein={todayProtein}
+              fat={todayFat}
+              carbs={todayCarbs}
+              targetProtein={profile?.recommended_pfc?.protein_g}
+              targetFat={profile?.recommended_pfc?.fat_g}
+              targetCarbs={profile?.recommended_pfc?.carbs_g}
+            />
+          </div>
+        )}
+
       </div>
 
       {/* サマリーグリッド */}
@@ -126,11 +241,24 @@ export default function Dashboard() {
           color="border-blue-400"
         />
         <SummaryCard
-          icon={weightDiff === null ? <Minus size={14} /> : weightDiff < 0 ? <TrendingDown size={14} className="text-green-500" /> : <TrendingUp size={14} className="text-red-500" />}
+          icon={
+            weightDiff === null
+              ? <Minus size={14} />
+              : weightDiff < 0
+                ? <TrendingDown size={14} className="text-green-500" />
+                : <TrendingUp size={14} className="text-red-500" />
+          }
           label="今月の変化"
-          value={weightDiff !== null ? (weightDiff > 0 ? `+${weightDiff.toFixed(1)}` : weightDiff.toFixed(1)) : '--'}
+          value={
+            weightDiff !== null
+              ? (weightDiff > 0 ? `+${weightDiff.toFixed(1)}` : weightDiff.toFixed(1))
+              : '--'
+          }
           unit="kg"
-          color={weightDiff === null ? 'border-gray-300' : weightDiff < 0 ? 'border-green-400' : 'border-red-400'}
+          color={
+            weightDiff === null ? 'border-gray-300'
+              : weightDiff < 0 ? 'border-green-400' : 'border-red-400'
+          }
         />
         <SummaryCard
           icon={<Footprints size={14} />}
@@ -156,7 +284,8 @@ export default function Dashboard() {
               <Trophy className="text-yellow-500" size={20} />
               <span className="font-semibold text-gray-700">トレーニングレベル</span>
             </div>
-            <div className="flex items-center gap-1 bg-yellow-50 text-yellow-700 text-xs font-bold px-2 py-1 rounded-full">
+            <div className="flex items-center gap-1 bg-yellow-50 text-yellow-700
+                            text-xs font-bold px-2 py-1 rounded-full">
               <Zap size={12} />
               Lv.{gameData.level}
             </div>
@@ -176,27 +305,43 @@ export default function Dashboard() {
           <Flame className="text-green-500" size={20} />
           <span className="font-semibold text-gray-700">今日の食事</span>
         </div>
-        {todayData?.meals?.length > 0 ? (
+        {(todayData?.meals?.length ?? 0) > 0 ? (
           <div className="space-y-2">
-            {todayData.meals.map((meal: { id: number; meal_type: string; food_name: string; quantity: string; estimated_calories: number }) => (
-              <div key={meal.id} className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
-                <div>
-                  <span className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 mr-2">
-                    {meal.meal_type === 'breakfast' ? '朝食' :
-                     meal.meal_type === 'lunch' ? '昼食' :
-                     meal.meal_type === 'dinner' ? '夕食' : '間食'}
-                  </span>
-                  <span className="text-sm text-gray-700">{meal.food_name}</span>
-                  <span className="text-xs text-gray-400 ml-1">({meal.quantity})</span>
+            {todayData!.meals.map(meal => (
+              <div
+                key={meal.id}
+                className="flex justify-between items-start py-2
+                           border-b border-gray-50 last:border-0"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5">
+                      {meal.meal_type === 'breakfast' ? '朝食'
+                        : meal.meal_type === 'lunch'  ? '昼食'
+                        : meal.meal_type === 'dinner' ? '夕食' : '間食'}
+                    </span>
+                    <span className="text-sm text-gray-700 truncate">{meal.food_name}</span>
+                    <span className="text-xs text-gray-400">({meal.quantity})</span>
+                  </div>
+                  {/* PFC inline */}
+                  {(meal.protein_g || meal.fat_g || meal.carbs_g) && (
+                    <div className="flex gap-2 text-xs text-gray-400 mt-0.5 pl-1">
+                      <span className="text-blue-400">P {(meal.protein_g ?? 0).toFixed(1)}g</span>
+                      <span className="text-yellow-500">F {(meal.fat_g ?? 0).toFixed(1)}g</span>
+                      <span className="text-green-500">C {(meal.carbs_g ?? 0).toFixed(1)}g</span>
+                    </div>
+                  )}
                 </div>
-                <span className="text-sm font-semibold text-orange-500">
+                <span className="text-sm font-semibold text-orange-500 ml-2 shrink-0">
                   {Math.round(meal.estimated_calories)} kcal
                 </span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-gray-400 text-sm text-center py-4">まだ食事が記録されていません</p>
+          <p className="text-gray-400 text-sm text-center py-4">
+            まだ食事が記録されていません
+          </p>
         )}
       </div>
 

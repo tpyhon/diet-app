@@ -1,14 +1,16 @@
+// frontend/src/pages/AiPage.tsx
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchAiAdvice } from '../api'
-import { Bot, RefreshCw, Loader2, TrendingDown, Footprints, Dumbbell, Flame } from 'lucide-react'
+import {
+  Bot, RefreshCw, Loader2, TrendingDown,
+  Footprints, Dumbbell, Flame, Target,
+} from 'lucide-react'
 
-// マークダウン風テキストを簡易レンダリング
 function AdviceText({ text }: { text: string }) {
   return (
     <div className="space-y-3">
       {text.split('\n').filter(Boolean).map((line, i) => {
-        // ■ で始まる行はセクションヘッダー
         if (line.startsWith('■')) {
           return (
             <div key={i} className="flex items-center gap-2 mt-4 first:mt-0">
@@ -17,7 +19,6 @@ function AdviceText({ text }: { text: string }) {
             </div>
           )
         }
-        // ・ や - で始まる行はリスト
         if (line.startsWith('・') || line.startsWith('- ') || line.startsWith('• ')) {
           return (
             <p key={i} className="text-sm text-gray-600 pl-4 flex gap-2">
@@ -32,9 +33,8 @@ function AdviceText({ text }: { text: string }) {
   )
 }
 
-// データサマリーカード
 function SummaryChip({
-  icon, label, value
+  icon, label, value,
 }: {
   icon: React.ReactNode; label: string; value: string
 }) {
@@ -55,16 +55,13 @@ export default function AiPage() {
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['aiAdvice'],
     queryFn: () => fetchAiAdvice().then(r => r.data),
-    enabled,               // 手動で取得
-    staleTime: 1000 * 60 * 10,  // 10分キャッシュ
+    enabled,
+    staleTime: 1000 * 60 * 10,
   })
 
   const handleFetch = () => {
-    if (!enabled) {
-      setEnabled(true)
-    } else {
-      refetch()
-    }
+    if (!enabled) setEnabled(true)
+    else refetch()
   }
 
   const summary = data?.summary
@@ -72,11 +69,9 @@ export default function AiPage() {
   return (
     <div className="p-4 space-y-4 max-w-lg mx-auto">
 
-      {/* ヘッダー */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-          <Bot className="text-purple-500" size={22} />
-          AIアドバイス
+          <Bot className="text-purple-500" size={22} />AIアドバイス
         </h2>
         <button
           onClick={handleFetch}
@@ -87,12 +82,10 @@ export default function AiPage() {
         >
           {(isLoading || isFetching)
             ? <><Loader2 size={15} className="animate-spin" />分析中...</>
-            : <><RefreshCw size={15} />レポート生成</>
-          }
+            : <><RefreshCw size={15} />レポート生成</>}
         </button>
       </div>
 
-      {/* 初期状態 */}
       {!enabled && !data && (
         <div className="bg-white rounded-2xl p-8 shadow-sm text-center space-y-4">
           <div className="w-16 h-16 bg-purple-50 rounded-full flex items-center justify-center mx-auto">
@@ -101,7 +94,7 @@ export default function AiPage() {
           <div>
             <p className="font-semibold text-gray-700 mb-1">Gemma AIがあなたを分析します</p>
             <p className="text-sm text-gray-400">
-              過去7日間の食事・運動・体重データを元に<br />
+              過去7日間の食事・栄養素・運動・体重データを元に<br />
               パーソナライズされたアドバイスを生成します
             </p>
           </div>
@@ -117,7 +110,6 @@ export default function AiPage() {
         </div>
       )}
 
-      {/* ローディング */}
       {(isLoading || isFetching) && (
         <div className="bg-white rounded-2xl p-8 shadow-sm text-center space-y-3">
           <Loader2 size={36} className="animate-spin text-purple-400 mx-auto" />
@@ -126,10 +118,8 @@ export default function AiPage() {
         </div>
       )}
 
-      {/* 結果表示 */}
       {data && !isFetching && (
         <>
-          {/* データサマリー */}
           {summary && (
             <div className="bg-white rounded-2xl p-4 shadow-sm">
               <p className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wide">
@@ -142,6 +132,11 @@ export default function AiPage() {
                   value={`${summary.avg_daily_calories} kcal`}
                 />
                 <SummaryChip
+                  icon={<Target size={14} />}
+                  label="カロリー目標"
+                  value={`${summary.calorie_goal} kcal`}
+                />
+                <SummaryChip
                   icon={<Footprints size={14} />}
                   label="ウォーキング"
                   value={`${summary.walk_km} km / ${summary.walk_count}回`}
@@ -151,20 +146,34 @@ export default function AiPage() {
                   label="筋トレ回数"
                   value={`${summary.training_count} 回`}
                 />
-                <SummaryChip
-                  icon={<TrendingDown size={14} />}
-                  label="体重変化"
-                  value={
-                    summary.weight_start && summary.weight_end
-                      ? `${summary.weight_start}→${summary.weight_end} kg`
-                      : 'データなし'
-                  }
-                />
               </div>
+              {/* PFCサマリー */}
+              {(summary.avg_protein > 0 || summary.avg_fat > 0 || summary.avg_carbs > 0) && (
+                <div className="mt-3 pt-3 border-t border-gray-50">
+                  <p className="text-xs text-gray-400 mb-2">1日平均PFC</p>
+                  <div className="flex gap-3 text-sm">
+                    <span className="text-blue-400 font-semibold">
+                      P {summary.avg_protein}g
+                    </span>
+                    <span className="text-yellow-500 font-semibold">
+                      F {summary.avg_fat}g
+                    </span>
+                    <span className="text-green-500 font-semibold">
+                      C {summary.avg_carbs}g
+                    </span>
+                  </div>
+                </div>
+              )}
+              {/* 体重変化 */}
+              {summary.weight_start && summary.weight_end && (
+                <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
+                  <TrendingDown size={12} />
+                  体重変化: {summary.weight_start} → {summary.weight_end} kg
+                </div>
+              )}
             </div>
           )}
 
-          {/* AIアドバイス本文 */}
           <div className="bg-white rounded-2xl p-5 shadow-sm">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-7 h-7 bg-purple-100 rounded-full flex items-center justify-center">
@@ -175,16 +184,12 @@ export default function AiPage() {
             <AdviceText text={data.advice} />
           </div>
 
-          {/* 再生成ボタン */}
-          <button
-            onClick={() => refetch()}
-            disabled={isFetching}
+          <button onClick={() => refetch()} disabled={isFetching}
             className="w-full py-3 border-2 border-purple-200 text-purple-500 rounded-xl
                        text-sm font-semibold hover:bg-purple-50 transition-colors
                        flex items-center justify-center gap-2"
           >
-            <RefreshCw size={15} />
-            アドバイスを再生成する
+            <RefreshCw size={15} />アドバイスを再生成する
           </button>
         </>
       )}

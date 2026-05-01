@@ -1,3 +1,4 @@
+# backend/app/routers/meals.py
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -9,12 +10,21 @@ from app.models.user import User
 from app.auth import get_current_user
 from google import genai
 from google.genai import types
-import os, base64
+import os, json
 
 router = APIRouter(prefix="/api/meals", tags=["meals"])
 
 def get_client():
     return genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+
+# ── Pydanticスキーマ ──────────────────────────────────────────
+
+class NutritionInfo(BaseModel):
+    estimated_calories: float
+    protein_g: float
+    fat_g: float
+    carbs_g: float
 
 class MealCreate(BaseModel):
     meal_type: str
@@ -27,13 +37,23 @@ class MealCreateWithCalories(BaseModel):
     food_name: str
     quantity: str
     estimated_calories: float
+    protein_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    carbs_g: Optional[float] = None
     notes: Optional[str] = None
 
-async def estimate_calories(food_name: str, quantity: str) -> float:
+
+# ── AI推定：カロリー＋PFC ─────────────────────────────────────
+
+async def estimate_nutrition(food_name: str, quantity: str) -> NutritionInfo:
+    """
+    食品名・量からカロリーとPFCをJSON形式でAI推定する。
+    パースに失敗した場合は0埋めを返す。
+    """
     prompt = (
         f"食品名: {food_name}\n量: {quantity}\n\n"
-        "このメニューのカロリーをkcalの数値のみで答えてください。"
-        "数字以外は一切含めないでください。例: 320"
+        "この食事の栄養素を以下のJSON形式のみで返してください。説明文は不要です。\n"
+        '{"calories": 数値, "protein_g": 数値, "fat_g": 数値, "carbs_g": 数値}'
     )
     try:
         client = get_client()
@@ -41,12 +61,36 @@ async def estimate_calories(food_name: str, quantity: str) -> float:
             model="gemma-4-26b-a4b-it",
             contents=prompt,
             config=types.GenerateContentConfig(
-                system_instruction="あなたは栄養士です。カロリーの数値のみを返してください。"
+                system_instruction=(
+                    "あなたは栄養士です。食品のカロリーとPFC（タンパク質・脂質・炭水化物）を"
+                    "JSONのみで返してください。"
+                )
             )
         )
-        return float(response.text.strip().replace("kcal","").replace("Kcal","").strip())
-    except Exception:
-        return 0.0
+        raw = response.text.strip()
+        # コードブロック除去
+        if "```" in raw:
+            for part in raw.split("```"):
+                part = part.strip()
+                if part.startswith("json"):
+                    part = part[4:].strip()
+                if part.startswith("{"):
+                    raw = part
+                    break
+        start = raw.find("{"); end = raw.rfind("}") + 1
+        if start != -1 and end > start:
+            raw = raw[start:end]
+        data = json.loads(raw)
+        return NutritionInfo(
+            estimated_calories=float(data.get("calories", 0)),
+            protein_g=float(data.get("protein_g", 0)),
+            fat_g=float(data.get("fat_g", 0)),
+            carbs_g=float(data.get("carbs_g", 0)),
+        )
+    except Exception as e:
+        print(f"栄養推定エラー: {e}")
+        return NutritionInfo(estimated_calories=0.0, protein_g=0.0, fat_g=0.0, carbs_g=0.0)
+
 
 async def analyze_food_image(image_bytes: bytes, mime_type: str) -> dict:
     prompt = """
@@ -57,6 +101,9 @@ async def analyze_food_image(image_bytes: bytes, mime_type: str) -> dict:
   "food_name": "料理名（日本語）",
   "quantity": "量の推定（例：1人前、茶碗1杯、約200g）",
   "estimated_calories": 数値のみ（kcal）,
+  "protein_g": 数値のみ（g）,
+  "fat_g": 数値のみ（g）,
+  "carbs_g": 数値のみ（g）,
   "description": "簡単な説明（1文）"
 }
 """
@@ -69,13 +116,14 @@ async def analyze_food_image(image_bytes: bytes, mime_type: str) -> dict:
                 prompt
             ],
             config=types.GenerateContentConfig(
-                system_instruction="あなたは栄養士です。食事の画像を分析してJSONのみを返してください。"
+                system_instruction=(
+                    "あなたは栄養士です。食事の画像を分析してカロリーとPFCを含むJSONのみを返してください。"
+                )
             )
         )
         raw = response.text.strip()
         if "```" in raw:
-            parts = raw.split("```")
-            for part in parts:
+            for part in raw.split("```"):
                 part = part.strip()
                 if part.startswith("json"):
                     part = part[4:].strip()
@@ -83,17 +131,18 @@ async def analyze_food_image(image_bytes: bytes, mime_type: str) -> dict:
                     raw = part
                     break
         raw = raw.strip()
-        start = raw.find("{")
-        end   = raw.rfind("}") + 1
+        start = raw.find("{"); end = raw.rfind("}") + 1
         if start != -1 and end > start:
             raw = raw[start:end]
-        import json
         data = json.loads(raw)
         return {
-            "food_name": data.get("food_name", "不明な料理"),
-            "quantity":  data.get("quantity", "1人前"),
-            "estimated_calories": float(data.get("estimated_calories", 0)),
-            "description": data.get("description", ""),
+            "food_name":           data.get("food_name", "不明な料理"),
+            "quantity":            data.get("quantity", "1人前"),
+            "estimated_calories":  float(data.get("estimated_calories", 0)),
+            "protein_g":           float(data.get("protein_g", 0)),
+            "fat_g":               float(data.get("fat_g", 0)),
+            "carbs_g":             float(data.get("carbs_g", 0)),
+            "description":         data.get("description", ""),
         }
     except Exception as e:
         print(f"画像解析エラー: {e}")
@@ -101,16 +150,20 @@ async def analyze_food_image(image_bytes: bytes, mime_type: str) -> dict:
             "food_name": "解析できませんでした",
             "quantity": "不明",
             "estimated_calories": 0.0,
+            "protein_g": 0.0,
+            "fat_g": 0.0,
+            "carbs_g": 0.0,
             "description": str(e),
         }
 
-# ── エンドポイント ────────────────────────────────────────
+
+# ── エンドポイント ────────────────────────────────────────────
 
 @router.post("/analyze-image")
 async def analyze_image(
     file: UploadFile = File(...),
     meal_type: str = "lunch",
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
@@ -121,12 +174,13 @@ async def analyze_image(
     result = await analyze_food_image(contents, mime_type)
     return {"meal_type": meal_type, **result}
 
+
 @router.post("/from-image")
 async def create_meal_from_image(
     file: UploadFile = File(...),
     meal_type: str = "lunch",
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
@@ -134,11 +188,14 @@ async def create_meal_from_image(
     mime_type = file.content_type or "image/jpeg"
     result = await analyze_food_image(contents, mime_type)
     db_meal = Meal(
-        user_id=current_user.id,               # ← 追加
+        user_id=current_user.id,
         meal_type=meal_type,
         food_name=result["food_name"],
         quantity=result["quantity"],
         estimated_calories=result["estimated_calories"],
+        protein_g=result.get("protein_g"),
+        fat_g=result.get("fat_g"),
+        carbs_g=result.get("carbs_g"),
         notes=result.get("description"),
     )
     db.add(db_meal)
@@ -146,83 +203,103 @@ async def create_meal_from_image(
     db.refresh(db_meal)
     return db_meal
 
+
 @router.post("/")
 async def create_meal(
     meal: MealCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
-    calories = await estimate_calories(meal.food_name, meal.quantity)
+    nutrition = await estimate_nutrition(meal.food_name, meal.quantity)
     db_meal = Meal(
-        user_id=current_user.id,               # ← 追加
+        user_id=current_user.id,
         meal_type=meal.meal_type,
         food_name=meal.food_name,
         quantity=meal.quantity,
-        estimated_calories=calories,
-        notes=meal.notes
+        estimated_calories=nutrition.estimated_calories,
+        protein_g=nutrition.protein_g,
+        fat_g=nutrition.fat_g,
+        carbs_g=nutrition.carbs_g,
+        notes=meal.notes,
     )
     db.add(db_meal)
     db.commit()
     db.refresh(db_meal)
     return db_meal
 
+
 @router.post("/with-calories")
 async def create_meal_with_calories(
     meal: MealCreateWithCalories,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     db_meal = Meal(
-        user_id=current_user.id,               # ← 追加
+        user_id=current_user.id,
         meal_type=meal.meal_type,
         food_name=meal.food_name,
         quantity=meal.quantity,
         estimated_calories=meal.estimated_calories,
-        notes=meal.notes
+        protein_g=meal.protein_g,
+        fat_g=meal.fat_g,
+        carbs_g=meal.carbs_g,
+        notes=meal.notes,
     )
     db.add(db_meal)
     db.commit()
     db.refresh(db_meal)
     return db_meal
+
 
 @router.get("/")
 def get_meals(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     return (
         db.query(Meal)
-        .filter(Meal.user_id == current_user.id)       # ← 追加
+        .filter(Meal.user_id == current_user.id)
         .order_by(Meal.date.desc())
         .offset(skip)
         .limit(limit)
         .all()
     )
 
+
 @router.get("/today")
 def get_today_meals(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     today = datetime.now().date()
     meals = db.query(Meal).filter(
-        Meal.user_id == current_user.id,               # ← 追加
+        Meal.user_id == current_user.id,
         Meal.date >= datetime.combine(today, datetime.min.time())
     ).all()
     total_calories = sum(m.estimated_calories or 0 for m in meals)
-    return {"meals": meals, "total_calories": round(total_calories, 1)}
+    total_protein  = sum(m.protein_g or 0 for m in meals)
+    total_fat      = sum(m.fat_g     or 0 for m in meals)
+    total_carbs    = sum(m.carbs_g   or 0 for m in meals)
+    return {
+        "meals": meals,
+        "total_calories": round(total_calories, 1),
+        "total_protein":  round(total_protein, 1),
+        "total_fat":      round(total_fat, 1),
+        "total_carbs":    round(total_carbs, 1),
+    }
+
 
 @router.delete("/{meal_id}")
 def delete_meal(
     meal_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     meal = db.query(Meal).filter(
         Meal.id == meal_id,
-        Meal.user_id == current_user.id,               # ← 追加（他人のデータを消せないように）
+        Meal.user_id == current_user.id,
     ).first()
     if not meal:
         raise HTTPException(status_code=404, detail="Meal not found")
