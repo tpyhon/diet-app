@@ -51,7 +51,6 @@ function SummaryCard({
 }
 
 // PFC バーコンポーネント
-// Dashboard.tsx 内の PfcBar コンポーネントを以下に差し替え
 
 function PfcBar({
   protein, fat, carbs, targetProtein, targetFat, targetCarbs,
