@@ -1,3 +1,4 @@
+# backend/app/routers/weight.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -7,6 +8,7 @@ from app.database import get_db
 from app.models.weight import WeightRecord, WeightGoal
 from app.models.user import User
 from app.auth import get_current_user
+from app.utils import now_jst
 
 router = APIRouter(prefix="/api/weight", tags=["weight"])
 
@@ -26,70 +28,75 @@ class WeightGoalCreate(BaseModel):
     target_weight_kg: float
     target_date: Optional[datetime] = None
 
+
 @router.post("/")
 def create_record(
     record: WeightCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     db_r = WeightRecord(
-        user_id=current_user.id,               # ← 追加
+        user_id=current_user.id,
         weight_kg=record.weight_kg,
         body_fat_pct=record.body_fat_pct,
-        notes=record.notes
+        notes=record.notes,
+        date=now_jst(),       # ← JST明示
     )
     db.add(db_r); db.commit(); db.refresh(db_r)
     return db_r
+
 
 @router.get("/history")
 def get_history(
     period: str = "1month",
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     delta = PERIOD_MAP.get(period, timedelta(days=30))
-    since = datetime.now() - delta
+    since = now_jst() - delta   # ← JST明示
     return (
         db.query(WeightRecord)
         .filter(
-            WeightRecord.user_id == current_user.id,  # ← 追加
-            WeightRecord.date >= since
+            WeightRecord.user_id == current_user.id,
+            WeightRecord.date >= since,
         )
         .order_by(WeightRecord.date.asc())
         .all()
     )
 
+
 @router.delete("/{record_id}")
 def delete_record(
     record_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     r = db.query(WeightRecord).filter(
         WeightRecord.id == record_id,
-        WeightRecord.user_id == current_user.id,      # ← 追加
+        WeightRecord.user_id == current_user.id,
     ).first()
     if not r:
         raise HTTPException(status_code=404, detail="Not found")
     db.delete(r); db.commit()
     return {"ok": True}
 
+
 @router.post("/goal")
 def set_goal(
     goal: WeightGoalCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     existing = db.query(WeightGoal).filter(
-        WeightGoal.user_id == current_user.id          # ← 追加
+        WeightGoal.user_id == current_user.id
     ).first()
     if existing:
         existing.target_weight_kg = goal.target_weight_kg
-        existing.target_date = goal.target_date
-        existing.updated_at = datetime.now()
+        existing.target_date      = goal.target_date
+        existing.updated_at       = now_jst()   # ← JST明示
     else:
         existing = WeightGoal(
-            user_id=current_user.id,                   # ← 追加
+            user_id=current_user.id,
             target_weight_kg=goal.target_weight_kg,
             target_date=goal.target_date,
         )
@@ -97,74 +104,76 @@ def set_goal(
     db.commit(); db.refresh(existing)
     return existing
 
+
 @router.get("/goal")
 def get_goal(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     goal = db.query(WeightGoal).filter(
-        WeightGoal.user_id == current_user.id          # ← 追加
+        WeightGoal.user_id == current_user.id
     ).first()
     if not goal:
         return {"goal": None, "prediction": None}
 
-    since = datetime.now() - timedelta(days=30)
+    since   = now_jst() - timedelta(days=30)   # ← JST明示
     records = db.query(WeightRecord).filter(
-        WeightRecord.user_id == current_user.id,       # ← 追加
-        WeightRecord.date >= since
+        WeightRecord.user_id == current_user.id,
+        WeightRecord.date >= since,
     ).order_by(WeightRecord.date.asc()).all()
 
     prediction = None
     if len(records) >= 2:
         days_span = (records[-1].date - records[0].date).days
         if days_span > 0:
-            weight_change = records[-1].weight_kg - records[0].weight_kg
-            daily_change  = weight_change / days_span
+            weight_change  = records[-1].weight_kg - records[0].weight_kg
+            daily_change   = weight_change / days_span
             current_weight = records[-1].weight_kg
             target_weight  = goal.target_weight_kg
             remaining      = current_weight - target_weight
             if daily_change < 0 and remaining > 0:
                 days_to_goal   = remaining / abs(daily_change)
-                predicted_date = datetime.now() + timedelta(days=days_to_goal)
+                predicted_date = now_jst() + timedelta(days=days_to_goal)   # ← JST明示
                 prediction = {
-                    "predicted_date": predicted_date.isoformat(),
-                    "days_remaining": round(days_to_goal),
+                    "predicted_date":  predicted_date.isoformat(),
+                    "days_remaining":  round(days_to_goal),
                     "daily_change_kg": round(daily_change, 3),
-                    "current_weight": current_weight,
-                    "remaining_kg": round(remaining, 1),
+                    "current_weight":  current_weight,
+                    "remaining_kg":    round(remaining, 1),
                 }
             elif remaining <= 0:
                 prediction = {
-                    "achieved": True,
+                    "achieved":       True,
                     "current_weight": current_weight,
-                    "remaining_kg": round(remaining, 1),
+                    "remaining_kg":   round(remaining, 1),
                 }
             else:
                 prediction = {
-                    "on_track": False,
+                    "on_track":        False,
                     "daily_change_kg": round(daily_change, 3),
                     "message": "現在の傾向では目標達成が難しい状態です。食事・運動を見直しましょう。"
                 }
     return {"goal": goal, "prediction": prediction}
 
+
 @router.get("/prediction-data")
 def get_prediction_data(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # ← 追加
+    current_user: User = Depends(get_current_user),
 ):
     goal = db.query(WeightGoal).filter(
-        WeightGoal.user_id == current_user.id          # ← 追加
+        WeightGoal.user_id == current_user.id
     ).first()
     records = (
         db.query(WeightRecord)
-        .filter(WeightRecord.user_id == current_user.id)  # ← 追加
+        .filter(WeightRecord.user_id == current_user.id)
         .order_by(WeightRecord.date.asc())
         .limit(365)
         .all()
     )
     actual = [
         {
-            "date": r.date.strftime("%m/%d"),
+            "date":   r.date.strftime("%m/%d"),
             "actual": r.weight_kg,
             "target": goal.target_weight_kg if goal else None,
         }
@@ -172,20 +181,20 @@ def get_prediction_data(
     ]
     prediction_line = []
     if len(records) >= 2 and goal:
-        since  = datetime.now() - timedelta(days=30)
+        since  = now_jst() - timedelta(days=30)   # ← JST明示
         recent = [r for r in records if r.date >= since]
         if len(recent) >= 2:
             days_span = (recent[-1].date - recent[0].date).days
             if days_span > 0:
                 daily_change = (recent[-1].weight_kg - recent[0].weight_kg) / days_span
-                current = recent[-1].weight_kg
+                current      = recent[-1].weight_kg
                 for i in range(1, 181):
                     predicted  = current + daily_change * i
-                    date_label = (datetime.now() + timedelta(days=i)).strftime("%m/%d")
+                    date_label = (now_jst() + timedelta(days=i)).strftime("%m/%d")   # ← JST明示
                     prediction_line.append({
-                        "date": date_label,
+                        "date":      date_label,
                         "predicted": round(predicted, 2),
-                        "target": goal.target_weight_kg,
+                        "target":    goal.target_weight_kg,
                     })
                     if (daily_change < 0 and predicted <= goal.target_weight_kg) or \
                        (daily_change > 0 and predicted >= goal.target_weight_kg):

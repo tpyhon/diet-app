@@ -1,7 +1,7 @@
 # backend/app/routers/ai_advice.py
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import timedelta
 from app.database import get_db
 from app.models.meal import Meal
 from app.models.walking import WalkingSession
@@ -9,6 +9,7 @@ from app.models.training import TrainingLog, TrainingPlan
 from app.models.weight import WeightRecord
 from app.models.user import User
 from app.auth import get_current_user
+from app.utils import now_jst
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
@@ -23,11 +24,10 @@ async def get_advice(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    since = datetime.now() - timedelta(days=7)
+    since = now_jst() - timedelta(days=7)   # ← JST明示
 
-    meals = db.query(Meal).filter(
-        Meal.user_id == current_user.id,
-        Meal.date >= since
+    meals       = db.query(Meal).filter(
+        Meal.user_id == current_user.id, Meal.date >= since
     ).all()
     avg_cal     = sum(m.estimated_calories or 0 for m in meals) / 7
     avg_protein = sum(m.protein_g or 0 for m in meals) / 7
@@ -36,23 +36,20 @@ async def get_advice(
 
     calorie_goal = current_user.calorie_goal or 2000
 
-    walks = db.query(WalkingSession).filter(
-        WalkingSession.user_id == current_user.id,
-        WalkingSession.start_time >= since
+    walks    = db.query(WalkingSession).filter(
+        WalkingSession.user_id == current_user.id, WalkingSession.start_time >= since
     ).all()
     walk_km  = sum(w.distance_km or 0 for w in walks)
     walk_cal = sum(w.estimated_calories or 0 for w in walks)
     walk_cnt = len(walks)
 
-    trains = db.query(TrainingLog).filter(
-        TrainingLog.user_id == current_user.id,
-        TrainingLog.date >= since
+    trains    = db.query(TrainingLog).filter(
+        TrainingLog.user_id == current_user.id, TrainingLog.date >= since
     ).all()
     train_cnt = len(trains)
 
     weights = db.query(WeightRecord).filter(
-        WeightRecord.user_id == current_user.id,
-        WeightRecord.date >= since
+        WeightRecord.user_id == current_user.id, WeightRecord.date >= since
     ).order_by(WeightRecord.date.asc()).all()
     w_start = weights[0].weight_kg if weights else None
     w_end   = weights[-1].weight_kg if weights else None
@@ -185,7 +182,7 @@ async def generate_training_plan(
             if part.startswith("{"):
                 raw = part
                 break
-    raw = raw.strip()
+    raw   = raw.strip()
     start = raw.find("{"); end = raw.rfind("}") + 1
     if start != -1 and end > start:
         raw = raw[start:end]
@@ -195,19 +192,19 @@ async def generate_training_plan(
     except json.JSONDecodeError as e:
         print(f"JSON parse error: {e}")
         return {
-            "error": "AIの応答をパースできませんでした",
-            "raw": raw[:500],
+            "error":       "AIの応答をパースできませんでした",
+            "raw":         raw[:500],
             "saved_count": 0,
-            "plans": [],
-            "comment": "生成に失敗しました。もう一度お試しください。"
+            "plans":       [],
+            "comment":     "生成に失敗しました。もう一度お試しください。"
         }
 
     if "plans" not in data:
         return {
-            "error": "プランデータが見つかりませんでした",
+            "error":       "プランデータが見つかりませんでした",
             "saved_count": 0,
-            "plans": [],
-            "comment": str(data)
+            "plans":       [],
+            "comment":     str(data)
         }
 
     saved_plans = []
@@ -231,6 +228,6 @@ async def generate_training_plan(
     db.commit()
     return {
         "saved_count": len(saved_plans),
-        "plans": saved_plans,
-        "comment": data.get("comment", ""),
+        "plans":       saved_plans,
+        "comment":     data.get("comment", ""),
     }

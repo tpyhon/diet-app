@@ -1,27 +1,27 @@
+// frontend/src/pages/WalkingPage.tsx
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet'
 import { fetchWalkingSessions, createWalkingSession, deleteWalkingSession } from '../api'
 import type { WalkingSession } from '../api'
 import { fixLeafletIcons, startIcon, endIcon } from '../utils/leafletIcons'
+import { toJSTISOString, nowJSTString } from '../utils/datetime'
 import toast from 'react-hot-toast'
 import {
   Footprints, Play, Square, MapPin,
   Clock, Zap, Navigation, Loader2,
-  ChevronDown, ChevronUp, Map, Plus , Trash2
+  ChevronDown, ChevronUp, Map, Plus, Trash2,
 } from 'lucide-react'
 import 'leaflet/dist/leaflet.css'
 
 fixLeafletIcons()
 
-// GPS座標の型
 interface GPSPoint {
   lat: number
   lng: number
   timestamp: string
 }
 
-// 地図の中心を現在位置に追従させるコンポーネント
 function MapFollower({ position }: { position: [number, number] | null }) {
   const map = useMap()
   useEffect(() => {
@@ -30,21 +30,18 @@ function MapFollower({ position }: { position: [number, number] | null }) {
   return null
 }
 
-// 時間フォーマット（秒 → mm:ss）
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-// 距離フォーマット
 function formatDistance(km: number): string {
   return km >= 1 ? `${km.toFixed(2)} km` : `${Math.round(km * 1000)} m`
 }
 
-// ハーバーサイン距離計算
 function haversineKm(p1: GPSPoint, p2: GPSPoint): number {
-  const R = 6371
+  const R    = 6371
   const dLat = ((p2.lat - p1.lat) * Math.PI) / 180
   const dLon = ((p2.lng - p1.lng) * Math.PI) / 180
   const a =
@@ -55,13 +52,37 @@ function haversineKm(p1: GPSPoint, p2: GPSPoint): number {
   return R * 2 * Math.asin(Math.sqrt(a))
 }
 
-// ─── 過去セッションカード ────────────────────────────────
-function SessionCard({ session, onDelete }: {
+/** 速度(km/h)からMETs値を返す（walking.pyと同じロジック） */
+function speedToMets(speedKmh: number): number {
+  if (speedKmh < 3.2) return 2.8
+  if (speedKmh < 4.8) return 3.5
+  if (speedKmh < 6.4) return 4.3
+  return 5.0
+}
+
+/** 距離・時間・体重からMETs基準で消費カロリーを計算する */
+function calcWalkingCalories(
+  distanceKm: number,
+  durationMin: number,
+  weightKg = 65,
+): number {
+  if (durationMin <= 0 || distanceKm <= 0) return 0
+  const speedKmh = distanceKm / (durationMin / 60)
+  const mets     = speedToMets(speedKmh)
+  return Math.round(mets * weightKg * (durationMin / 60) * 1.05)
+}
+
+
+// ─── 過去セッションカード ────────────────────────────────────
+function SessionCard({
+  session,
+  onDelete,
+}: {
   session: WalkingSession
   onDelete: (id: number) => void
 }) {
-  const [showMap, setShowMap] = useState(false)
-  const [route, setRoute] = useState<GPSPoint[]>([])
+  const [showMap, setShowMap]           = useState(false)
+  const [route, setRoute]               = useState<GPSPoint[]>([])
   const [loadingRoute, setLoadingRoute] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
@@ -69,7 +90,7 @@ function SessionCard({ session, onDelete }: {
     if (!showMap && route.length === 0) {
       setLoadingRoute(true)
       try {
-        const res = await fetch(`/api/walking/${session.id}/route`)
+        const res  = await fetch(`/api/walking/${session.id}/route`)
         const data = await res.json()
         setRoute(data.route ?? [])
       } catch {
@@ -87,42 +108,35 @@ function SessionCard({ session, onDelete }: {
 
   return (
     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-      {/* セッション情報 */}
       <div className="px-4 py-3">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-semibold text-gray-700">
             {new Date(session.start_time).toLocaleDateString('ja-JP', {
-              month: 'short', day: 'numeric', weekday: 'short'
+              month: 'short', day: 'numeric', weekday: 'short',
             })}
           </span>
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400">
               {new Date(session.start_time).toLocaleTimeString('ja-JP', {
-                hour: '2-digit', minute: '2-digit'
+                hour: '2-digit', minute: '2-digit',
               })}
             </span>
-            {/* 削除ボタン */}
             {confirmDelete ? (
               <div className="flex items-center gap-1">
                 <span className="text-xs text-red-500">削除する？</span>
                 <button
                   onClick={() => onDelete(session.id)}
                   className="text-xs bg-red-500 text-white px-2 py-1 rounded-lg hover:bg-red-600"
-                >
-                  はい
-                </button>
+                >はい</button>
                 <button
                   onClick={() => setConfirmDelete(false)}
                   className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-lg"
-                >
-                  いいえ
-                </button>
+                >いいえ</button>
               </div>
             ) : (
               <button
                 onClick={() => setConfirmDelete(true)}
-                className="p-1.5 text-gray-300 hover:text-red-400
-                           hover:bg-red-50 rounded-lg transition-colors"
+                className="p-1.5 text-gray-300 hover:text-red-400 hover:bg-red-50 rounded-lg transition-colors"
               >
                 <Trash2 size={15} />
               </button>
@@ -157,7 +171,6 @@ function SessionCard({ session, onDelete }: {
         )}
       </div>
 
-      {/* 地図表示ボタン */}
       <button
         onClick={handleShowMap}
         className="w-full flex items-center justify-center gap-2 py-2.5
@@ -172,7 +185,6 @@ function SessionCard({ session, onDelete }: {
         }
       </button>
 
-      {/* 地図 */}
       {showMap && center && (
         <div className="h-52 px-3 pb-3">
           <MapContainer
@@ -203,12 +215,13 @@ function SessionCard({ session, onDelete }: {
 }
 
 
+// ─── 手動入力フォーム ────────────────────────────────────────
 function ManualEntryForm() {
-  const [show, setShow] = useState(false)
+  const [show, setShow]         = useState(false)
   const [distance, setDistance] = useState('')
   const [duration, setDuration] = useState('')
-  const [notes, setNotes] = useState('')
-  const queryClient = useQueryClient()
+  const [notes, setNotes]       = useState('')
+  const queryClient             = useQueryClient()
 
   const mutation = useMutation({
     mutationFn: createWalkingSession,
@@ -228,18 +241,27 @@ function ManualEntryForm() {
     if (isNaN(dist) || dist <= 0) { toast.error('距離を入力してください'); return }
     if (isNaN(dur)  || dur  <= 0) { toast.error('時間を入力してください'); return }
 
+    // ← toJSTISOString でJST時刻をそのまま送信
     const now   = new Date()
     const start = new Date(now.getTime() - dur * 60 * 1000)
-
-    // GPS座標なしで記録（スタート地点のみダミー）
     mutation.mutate({
-      start_time: start.toISOString(),
-      end_time: now.toISOString(),
-      route_points: [],   // GPS記録なし
-      manual_distance_km: dist,   // ← 距離を直接送信
-      notes: notes || '手動入力',
+      start_time:         toJSTISOString(start),
+      end_time:           toJSTISOString(now),
+      route_points:       [],
+      manual_distance_km: dist,
+      notes:              notes || '手動入力',
     })
   }
+
+  // カロリープレビュー（METs方式）
+  const previewCalories = (() => {
+    const dist = parseFloat(distance)
+    const dur  = parseFloat(duration)
+    if (!isNaN(dist) && !isNaN(dur) && dist > 0 && dur > 0) {
+      return calcWalkingCalories(dist, dur)
+    }
+    return null
+  })()
 
   if (!show) {
     return (
@@ -249,18 +271,15 @@ function ManualEntryForm() {
                    rounded-2xl text-sm hover:border-gray-300 hover:text-gray-500
                    transition-colors flex items-center justify-center gap-2"
       >
-        <Plus size={16} />
-        距離・時間を手動で入力する
+        <Plus size={16} />距離・時間を手動で入力する
       </button>
     )
   }
 
   return (
-    <form onSubmit={handleSubmit}
-      className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
+    <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
       <h3 className="font-semibold text-gray-700 flex items-center gap-2">
-        <Footprints size={18} className="text-cyan-500" />
-        手動入力
+        <Footprints size={18} className="text-cyan-500" />手動入力
       </h3>
 
       <div className="grid grid-cols-2 gap-3">
@@ -269,13 +288,11 @@ function ManualEntryForm() {
           <div className="relative">
             <input
               type="number" step="0.1" min="0" placeholder="例：3.5"
-              value={distance}
-              onChange={e => setDistance(e.target.value)}
+              value={distance} onChange={e => setDistance(e.target.value)}
               className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm
                          focus:outline-none focus:ring-2 focus:ring-cyan-400 pr-10"
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2
-                             text-gray-400 text-xs">km</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">km</span>
           </div>
         </div>
         <div>
@@ -283,13 +300,11 @@ function ManualEntryForm() {
           <div className="relative">
             <input
               type="number" step="1" min="0" placeholder="例：40"
-              value={duration}
-              onChange={e => setDuration(e.target.value)}
+              value={duration} onChange={e => setDuration(e.target.value)}
               className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm
                          focus:outline-none focus:ring-2 focus:ring-cyan-400 pr-10"
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2
-                             text-gray-400 text-xs">分</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">分</span>
           </div>
         </div>
       </div>
@@ -298,38 +313,35 @@ function ManualEntryForm() {
         <label className="text-xs text-gray-500 mb-1 block">メモ（任意）</label>
         <input
           type="text" placeholder="例：公園コース、雨の日ウォーク"
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
+          value={notes} onChange={e => setNotes(e.target.value)}
           className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm
                      focus:outline-none focus:ring-2 focus:ring-cyan-400"
         />
       </div>
 
-      {/* カロリー予測表示 */}
-      {distance && duration && (
+      {/* カロリープレビュー（METs方式） */}
+      {previewCalories !== null && (
         <div className="bg-cyan-50 rounded-xl px-4 py-3 text-sm text-cyan-700">
           推定消費カロリー：約
-          <span className="font-bold mx-1">
-            {Math.round(3.5 * 60 * (parseFloat(duration) / 60))}
-          </span>
+          <span className="font-bold mx-1">{previewCalories}</span>
           kcal
+          <span className="text-xs text-cyan-400 ml-1">
+            （{(parseFloat(distance) / (parseFloat(duration) / 60)).toFixed(1)} km/h）
+          </span>
         </div>
       )}
 
       <div className="flex gap-3">
         <button type="button" onClick={() => setShow(false)}
-          className="flex-1 py-3 rounded-xl border border-gray-200
-                     text-gray-500 text-sm hover:bg-gray-50">
+          className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-500 text-sm hover:bg-gray-50">
           キャンセル
         </button>
         <button type="submit" disabled={mutation.isPending}
-          className="flex-1 py-3 rounded-xl bg-cyan-500 text-white text-sm
-                     font-semibold hover:bg-cyan-600 disabled:opacity-50
-                     flex items-center justify-center gap-2">
+          className="flex-1 py-3 rounded-xl bg-cyan-500 text-white text-sm font-semibold
+                     hover:bg-cyan-600 disabled:opacity-50 flex items-center justify-center gap-2">
           {mutation.isPending
             ? <><Loader2 size={16} className="animate-spin" />保存中...</>
-            : '記録する'
-          }
+            : '記録する'}
         </button>
       </div>
     </form>
@@ -337,20 +349,20 @@ function ManualEntryForm() {
 }
 
 
-// ─── メインページ ────────────────────────────────────────
+// ─── メインページ ────────────────────────────────────────────
 export default function WalkingPage() {
-  const [isTracking, setIsTracking] = useState(false)
-  const [currentPos, setCurrentPos] = useState<[number, number] | null>(null)
-  const [routePoints, setRoutePoints] = useState<GPSPoint[]>([])
-  const [startTime, setStartTime] = useState<Date | null>(null)
-  const [elapsed, setElapsed] = useState(0)
+  const [isTracking, setIsTracking]       = useState(false)
+  const [currentPos, setCurrentPos]       = useState<[number, number] | null>(null)
+  const [routePoints, setRoutePoints]     = useState<GPSPoint[]>([])
+  const [startTime, setStartTime]         = useState<Date | null>(null)
+  const [elapsed, setElapsed]             = useState(0)
   const [totalDistance, setTotalDistance] = useState(0)
-  const [notes, setNotes] = useState('')
+  const [notes, setNotes]                 = useState('')
 
-  const watchIdRef   = useRef<number | null>(null)
+  const watchIdRef  = useRef<number | null>(null)
   const wakeLockRef = useRef<WakeLockSentinel | null>(null)
-  const timerRef     = useRef<ReturnType<typeof setInterval> | null>(null)
-  const queryClient  = useQueryClient()
+  const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null)
+  const queryClient = useQueryClient()
 
   const deleteMutation = useMutation({
     mutationFn: deleteWalkingSession,
@@ -361,13 +373,11 @@ export default function WalkingPage() {
     onError: () => toast.error('削除に失敗しました'),
   })
 
-  // 過去セッション取得
   const { data: sessions = [] } = useQuery<WalkingSession[]>({
     queryKey: ['walkingSessions'],
     queryFn: () => fetchWalkingSessions().then(r => r.data),
   })
 
-  // 保存
   const saveMutation = useMutation({
     mutationFn: createWalkingSession,
     onSuccess: () => {
@@ -377,7 +387,6 @@ export default function WalkingPage() {
     onError: () => toast.error('記録に失敗しました'),
   })
 
-  // タイマー
   useEffect(() => {
     if (isTracking) {
       timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
@@ -387,13 +396,11 @@ export default function WalkingPage() {
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [isTracking])
 
-  // GPS追跡開始
-  const startTracking = useCallback(async() => {
+  const startTracking = useCallback(async () => {
     if (!navigator.geolocation) {
       toast.error('このデバイスはGPSに対応していません')
       return
     }
-      // 画面スリープを防ぐ（対応デバイスのみ）
     if ('wakeLock' in navigator) {
       try {
         wakeLockRef.current = await navigator.wakeLock.request('screen')
@@ -411,15 +418,14 @@ export default function WalkingPage() {
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         const newPoint: GPSPoint = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          timestamp: new Date().toISOString(),
+          lat:       pos.coords.latitude,
+          lng:       pos.coords.longitude,
+          timestamp: nowJSTString(),   // ← JST時刻で記録
         }
         setCurrentPos([pos.coords.latitude, pos.coords.longitude])
         setRoutePoints(prev => {
           if (prev.length > 0) {
             const dist = haversineKm(prev[prev.length - 1], newPoint)
-            // 5m以上動いた時のみ記録（ノイズ除去）
             if (dist > 0.005) {
               setTotalDistance(d => d + dist)
               return [...prev, newPoint]
@@ -434,18 +440,11 @@ export default function WalkingPage() {
         toast.error('GPS取得に失敗しました。位置情報の許可を確認してください。')
         stopTracking()
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     )
   }, [])
 
-  // GPS追跡停止・保存
   const stopTracking = useCallback(() => {
-
-    // Wake Lockを解除
     if (wakeLockRef.current) {
       wakeLockRef.current.release()
       wakeLockRef.current = null
@@ -461,44 +460,41 @@ export default function WalkingPage() {
       return
     }
 
+    // ← toJSTISOString でJST時刻をそのまま送信
     saveMutation.mutate({
-      start_time: startTime.toISOString(),
-      end_time: new Date().toISOString(),
+      start_time:   toJSTISOString(startTime),
+      end_time:     nowJSTString(),
       route_points: routePoints,
-      notes: notes || undefined,
+      notes:        notes || undefined,
     })
     setNotes('')
   }, [routePoints, startTime, notes, saveMutation])
 
-  // 現在速度（km/h）
   const currentSpeed = elapsed > 0
     ? parseFloat(((totalDistance / elapsed) * 3600).toFixed(1))
     : 0
 
-  // 推定消費カロリー（リアルタイム）
-  const currentCalories = Math.round(3.5 * 60 * (elapsed / 3600))
+  // リアルタイム消費カロリー（METs方式）
+  const currentCalories = calcWalkingCalories(
+    totalDistance,
+    elapsed / 60,
+  )
 
-  // トラッキング中のポリライン
   const polylinePoints: [number, number][] = routePoints.map(p => [p.lat, p.lng])
 
   return (
     <div className="p-4 space-y-4 max-w-lg mx-auto">
-
-      {/* ヘッダー */}
       <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-        <Footprints className="text-cyan-500" size={22} />
-        ウォーキング
+        <Footprints className="text-cyan-500" size={22} />ウォーキング
       </h2>
 
-      {/* ─── トラッキング中UI ─── */}
       {isTracking ? (
         <div className="space-y-4">
           {/* リアルタイム地図 */}
           <div className="h-64 rounded-2xl overflow-hidden shadow-sm border border-gray-100">
             {currentPos ? (
               <MapContainer
-                center={currentPos}
-                zoom={16}
+                center={currentPos} zoom={16}
                 style={{ height: '100%', width: '100%' }}
                 scrollWheelZoom={false}
               >
@@ -508,12 +504,7 @@ export default function WalkingPage() {
                 />
                 <MapFollower position={currentPos} />
                 {polylinePoints.length > 1 && (
-                  <Polyline
-                    positions={polylinePoints}
-                    color="#06b6d4"
-                    weight={5}
-                    opacity={0.9}
-                  />
+                  <Polyline positions={polylinePoints} color="#06b6d4" weight={5} opacity={0.9} />
                 )}
                 {polylinePoints.length > 0 && (
                   <Marker position={polylinePoints[0]} icon={startIcon}>
@@ -566,13 +557,11 @@ export default function WalkingPage() {
             </div>
           </div>
 
-          {/* GPS点数インジケーター */}
           <div className="flex items-center gap-2 text-xs text-gray-400 bg-white rounded-xl px-4 py-2 shadow-sm">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
             <span>GPS記録中 — {routePoints.length} ポイント取得</span>
           </div>
 
-          {/* メモ入力 */}
           <input
             type="text"
             placeholder="メモ（任意）例：公園コース"
@@ -582,7 +571,6 @@ export default function WalkingPage() {
                        focus:outline-none focus:ring-2 focus:ring-cyan-400"
           />
 
-          {/* 停止ボタン */}
           <button
             onClick={stopTracking}
             disabled={saveMutation.isPending}
@@ -598,10 +586,7 @@ export default function WalkingPage() {
         </div>
 
       ) : (
-        /* ─── 停止中UI ─── */
         <div className="space-y-4">
-
-          {/* スタートボタン */}
           <div className="bg-white rounded-2xl p-6 shadow-sm text-center space-y-4">
             <div className="w-20 h-20 bg-cyan-50 rounded-full flex items-center justify-center mx-auto">
               <Footprints size={40} className="text-cyan-400" />
@@ -621,18 +606,13 @@ export default function WalkingPage() {
                          active:scale-95 transition-all shadow-md
                          flex items-center justify-center gap-2"
             >
-              <Play size={20} fill="white" />
-              スタート
+              <Play size={20} fill="white" />スタート
             </button>
-            <p className="text-xs text-gray-300">
-              ※ 屋外での使用を推奨します
-            </p>
+            <p className="text-xs text-gray-300">※ 屋外での使用を推奨します</p>
           </div>
 
-          {/* 手動入力モード */}
           <ManualEntryForm />
 
-          {/* 過去のセッション */}
           {sessions.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm text-gray-500 px-1">
@@ -640,12 +620,15 @@ export default function WalkingPage() {
                 <span>過去のウォーキング記録</span>
               </div>
               {sessions.map(session => (
-                <SessionCard key={session.id} session={session} onDelete={(id) => deleteMutation.mutate(id)}></SessionCard>
+                <SessionCard
+                  key={session.id}
+                  session={session}
+                  onDelete={(id) => deleteMutation.mutate(id)}
+                />
               ))}
             </div>
           )}
 
-          {/* 空状態 */}
           {sessions.length === 0 && (
             <div className="text-center py-8 text-gray-400">
               <Footprints size={48} className="mx-auto mb-3 opacity-25" />
@@ -655,7 +638,6 @@ export default function WalkingPage() {
           )}
         </div>
       )}
-
     </div>
   )
 }

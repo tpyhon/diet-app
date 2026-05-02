@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models.meal import Meal
 from app.models.user import User
 from app.auth import get_current_user
+from app.utils import now_jst, today_jst
 from google import genai
 from google.genai import types
 import os, json
@@ -46,10 +47,6 @@ class MealCreateWithCalories(BaseModel):
 # ── AI推定：カロリー＋PFC ─────────────────────────────────────
 
 async def estimate_nutrition(food_name: str, quantity: str) -> NutritionInfo:
-    """
-    食品名・量からカロリーとPFCをJSON形式でAI推定する。
-    パースに失敗した場合は0埋めを返す。
-    """
     prompt = (
         f"食品名: {food_name}\n量: {quantity}\n\n"
         "この食事の栄養素を以下のJSON形式のみで返してください。説明文は不要です。\n"
@@ -68,7 +65,6 @@ async def estimate_nutrition(food_name: str, quantity: str) -> NutritionInfo:
             )
         )
         raw = response.text.strip()
-        # コードブロック除去
         if "```" in raw:
             for part in raw.split("```"):
                 part = part.strip()
@@ -136,13 +132,13 @@ async def analyze_food_image(image_bytes: bytes, mime_type: str) -> dict:
             raw = raw[start:end]
         data = json.loads(raw)
         return {
-            "food_name":           data.get("food_name", "不明な料理"),
-            "quantity":            data.get("quantity", "1人前"),
-            "estimated_calories":  float(data.get("estimated_calories", 0)),
-            "protein_g":           float(data.get("protein_g", 0)),
-            "fat_g":               float(data.get("fat_g", 0)),
-            "carbs_g":             float(data.get("carbs_g", 0)),
-            "description":         data.get("description", ""),
+            "food_name":          data.get("food_name", "不明な料理"),
+            "quantity":           data.get("quantity", "1人前"),
+            "estimated_calories": float(data.get("estimated_calories", 0)),
+            "protein_g":          float(data.get("protein_g", 0)),
+            "fat_g":              float(data.get("fat_g", 0)),
+            "carbs_g":            float(data.get("carbs_g", 0)),
+            "description":        data.get("description", ""),
         }
     except Exception as e:
         print(f"画像解析エラー: {e}")
@@ -197,6 +193,7 @@ async def create_meal_from_image(
         fat_g=result.get("fat_g"),
         carbs_g=result.get("carbs_g"),
         notes=result.get("description"),
+        date=now_jst(),       # ← JST明示
     )
     db.add(db_meal)
     db.commit()
@@ -221,6 +218,7 @@ async def create_meal(
         fat_g=nutrition.fat_g,
         carbs_g=nutrition.carbs_g,
         notes=meal.notes,
+        date=now_jst(),       # ← JST明示
     )
     db.add(db_meal)
     db.commit()
@@ -244,6 +242,7 @@ async def create_meal_with_calories(
         fat_g=meal.fat_g,
         carbs_g=meal.carbs_g,
         notes=meal.notes,
+        date=now_jst(),       # ← JST明示
     )
     db.add(db_meal)
     db.commit()
@@ -273,17 +272,18 @@ def get_today_meals(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    today = datetime.now().date()
+    today = today_jst()      # ← JST明示
+    start = datetime(today.year, today.month, today.day, 0, 0, 0)
     meals = db.query(Meal).filter(
         Meal.user_id == current_user.id,
-        Meal.date >= datetime.combine(today, datetime.min.time())
+        Meal.date >= start,
     ).all()
     total_calories = sum(m.estimated_calories or 0 for m in meals)
     total_protein  = sum(m.protein_g or 0 for m in meals)
     total_fat      = sum(m.fat_g     or 0 for m in meals)
     total_carbs    = sum(m.carbs_g   or 0 for m in meals)
     return {
-        "meals": meals,
+        "meals":          meals,
         "total_calories": round(total_calories, 1),
         "total_protein":  round(total_protein, 1),
         "total_fat":      round(total_fat, 1),
