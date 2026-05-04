@@ -62,6 +62,8 @@ export const analyzeFoodImage = (file: File, mealType: string) => {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
+export const lookupBarcode = (barcode: string) =>
+  api.get(`/meals/barcode/${barcode}`)
 
 // ── ウォーキング ────────────────────────────────
 export const fetchWalkingSessions  = () => api.get('/walking/')
