@@ -10,6 +10,7 @@ import toast from 'react-hot-toast'
 import {
   Plus, Trash2, Loader2, UtensilsCrossed,
   Camera, Type, CheckCircle2, RefreshCw, X, Barcode,
+  ChevronDown, ChevronUp,
 } from 'lucide-react'
 
 // バーコードスキャナーは動的インポート（重いライブラリのため）
@@ -528,69 +529,252 @@ function ImageAnalysisForm({ onClose }: { onClose: () => void }) {
 
 // ── テキスト入力フォーム ──────────────────────────────────────
 function AddMealForm({ onClose }: { onClose: () => void }) {
-  const [form, setForm] = useState({ meal_type: 'lunch', food_name: '', quantity: '' })
+  const [mealType,  setMealType]  = useState('lunch')
+  const [foodName,  setFoodName]  = useState('')
+  const [quantity,  setQuantity]  = useState('')
+  const [protein,   setProtein]   = useState('')
+  const [fat,       setFat]       = useState('')
+  const [carbs,     setCarbs]     = useState('')
+  const [showPfc,   setShowPfc]   = useState(false)
   const queryClient = useQueryClient()
 
-  const mutation = useMutation({
+  // PFC が1つでも入力されているか
+  const hasPfc = protein !== '' || fat !== '' || carbs !== ''
+
+  // Gemma推定で登録
+  const estimateMutation = useMutation({
     mutationFn: createMeal,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meals'] })
       queryClient.invalidateQueries({ queryKey: ['todayMeals'] })
-      toast.success('食事を記録しました！')
+      toast.success('食事を記録しました（AI推定）')
       onClose()
     },
     onError: () => toast.error('記録に失敗しました'),
   })
 
+  // PFC直接指定で登録
+  const directMutation = useMutation({
+    mutationFn: createMealWithCalories,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meals'] })
+      queryClient.invalidateQueries({ queryKey: ['todayMeals'] })
+      toast.success('食事を記録しました')
+      onClose()
+    },
+    onError: () => toast.error('記録に失敗しました'),
+  })
+
+  const isLoading = estimateMutation.isPending || directMutation.isPending
+
+  // カロリー自動計算プレビュー
+  const previewCalories = hasPfc
+    ? Math.round((parseFloat(protein) || 0) * 4 + (parseFloat(fat) || 0) * 9 + (parseFloat(carbs) || 0) * 4)
+    : null
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.food_name.trim() || !form.quantity.trim()) { toast.error('食品名と量を入力してください'); return }
-    mutation.mutate(form)
+    if (!foodName.trim()) { toast.error('食品名を入力してください'); return }
+
+    if (hasPfc) {
+      // PFC入力あり → Gemma不使用、直接登録
+      const p   = parseFloat(protein) || 0
+      const f   = parseFloat(fat)     || 0
+      const c   = parseFloat(carbs)   || 0
+      const cal = Math.round(p * 4 + f * 9 + c * 4)
+      directMutation.mutate({
+        meal_type:          mealType,
+        food_name:          foodName.trim(),
+        quantity:           quantity.trim() || '適量',
+        estimated_calories: cal,
+        protein_g:          p,
+        fat_g:              f,
+        carbs_g:            c,
+      })
+    } else {
+      // PFC未入力 → Gemma推定
+      if (!quantity.trim()) { toast.error('量・サイズを入力してください'); return }
+      estimateMutation.mutate({
+        meal_type: mealType,
+        food_name: foodName.trim(),
+        quantity:  quantity.trim(),
+      })
+    }
   }
 
   return (
     <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
+      {/* ヘッダー */}
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-gray-700 flex items-center gap-2">
           <Type size={18} className="text-green-600" />テキストで入力
         </h3>
-        <button type="button" onClick={onClose} className="text-gray-300 hover:text-gray-500 p-1"><X size={18} /></button>
+        <button type="button" onClick={onClose} className="text-gray-300 hover:text-gray-500 p-1">
+          <X size={18} />
+        </button>
       </div>
+
+      {/* 食事タイプ */}
       <div className="grid grid-cols-4 gap-2">
         {MEAL_TYPES.map(({ value, label }) => (
-          <button key={value} type="button" onClick={() => setForm(f => ({ ...f, meal_type: value }))}
+          <button key={value} type="button" onClick={() => setMealType(value)}
             className={`py-2 rounded-xl text-xs font-medium transition-all
-              ${form.meal_type === value ? 'bg-green-600 text-white shadow-sm' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+              ${mealType === value
+                ? 'bg-green-600 text-white shadow-sm'
+                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
             {label}
           </button>
         ))}
       </div>
+
+      {/* 食品名 */}
       <div>
         <label className="text-xs text-gray-500 mb-1 block">食品名・メニュー名</label>
-        <input type="text" placeholder="例：ざるそば、おにぎり（鮭）" value={form.food_name}
-          onChange={e => setForm(f => ({ ...f, food_name: e.target.value }))}
-          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+        <input
+          type="text"
+          placeholder="例：ざるそば、おにぎり（鮭）"
+          value={foodName}
+          onChange={e => setFoodName(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm
+                     focus:outline-none focus:ring-2 focus:ring-green-400"
+        />
       </div>
+
+      {/* 量・サイズ */}
       <div>
-        <label className="text-xs text-gray-500 mb-1 block">量・サイズ</label>
-        <input type="text" placeholder="例：1人前、200g、普通盛り" value={form.quantity}
-          onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))}
-          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+        <label className="text-xs text-gray-500 mb-1 block">
+          量・サイズ
+          {!hasPfc && <span className="text-red-400 ml-1 text-xs">※ PFC未入力時は必須</span>}
+        </label>
+        <input
+          type="text"
+          placeholder="例：1人前、200g、普通盛り"
+          value={quantity}
+          onChange={e => setQuantity(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm
+                     focus:outline-none focus:ring-2 focus:ring-green-400"
+        />
       </div>
-      <div className="text-xs text-gray-400 bg-gray-50 rounded-lg p-2">
-        💡 AI（Gemma）が食品名・量からカロリーとPFCを自動推定します
+
+      {/* PFC入力（折りたたみ） */}
+      <div className="border border-gray-100 rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowPfc(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-3
+                     bg-gray-50 hover:bg-gray-100 transition-colors"
+        >
+          <span className="text-sm text-gray-600 font-medium">
+            PFCを手動入力する
+            {hasPfc && (
+              <span className="ml-2 text-xs text-green-600 font-normal">
+                P{protein||'–'} / F{fat||'–'} / C{carbs||'–'} g 入力済み
+              </span>
+            )}
+          </span>
+          {showPfc
+            ? <ChevronUp size={16} className="text-gray-400" />
+            : <ChevronDown size={16} className="text-gray-400" />
+          }
+        </button>
+
+        {showPfc && (
+          <div className="px-4 py-3 space-y-3 bg-white">
+            <p className="text-xs text-gray-400">
+              入力するとGemma AIを使わずそのまま登録されます
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {/* タンパク質 */}
+              <div>
+                <label className="block text-xs font-semibold text-blue-500 mb-1">タンパク質</label>
+                <div className="relative">
+                  <input
+                    type="number" min="0" step="0.1"
+                    value={protein}
+                    onChange={e => setProtein(e.target.value)}
+                    placeholder="0"
+                    className="w-full border border-blue-200 rounded-lg px-2 py-2.5
+                               text-sm pr-6 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">g</span>
+                </div>
+              </div>
+              {/* 脂質 */}
+              <div>
+                <label className="block text-xs font-semibold text-yellow-500 mb-1">脂質</label>
+                <div className="relative">
+                  <input
+                    type="number" min="0" step="0.1"
+                    value={fat}
+                    onChange={e => setFat(e.target.value)}
+                    placeholder="0"
+                    className="w-full border border-yellow-200 rounded-lg px-2 py-2.5
+                               text-sm pr-6 focus:outline-none focus:ring-2 focus:ring-yellow-300"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">g</span>
+                </div>
+              </div>
+              {/* 炭水化物 */}
+              <div>
+                <label className="block text-xs font-semibold text-green-500 mb-1">炭水化物</label>
+                <div className="relative">
+                  <input
+                    type="number" min="0" step="0.1"
+                    value={carbs}
+                    onChange={e => setCarbs(e.target.value)}
+                    placeholder="0"
+                    className="w-full border border-green-200 rounded-lg px-2 py-2.5
+                               text-sm pr-6 focus:outline-none focus:ring-2 focus:ring-green-300"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">g</span>
+                </div>
+              </div>
+            </div>
+
+            {/* カロリー自動計算プレビュー */}
+            {hasPfc && (
+              <div className="bg-orange-50 rounded-lg px-3 py-2 flex items-center gap-2">
+                <span className="text-orange-400 text-sm">🔥</span>
+                <span className="text-sm text-orange-600 font-medium">
+                  推定カロリー：{previewCalories} kcal
+                </span>
+                <span className="text-xs text-gray-400">（P×4 + F×9 + C×4）</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* AI推定の説明 */}
+      {!hasPfc && (
+        <div className="text-xs text-gray-400 bg-gray-50 rounded-lg p-2">
+          💡 PFC未入力の場合、AI（Gemma）が食品名・量からカロリーとPFCを自動推定します
+        </div>
+      )}
+
+      {/* 送信ボタン */}
       <div className="flex gap-3">
         <button type="button" onClick={onClose}
-          className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-500 text-sm hover:bg-gray-50">キャンセル</button>
-        <button type="submit" disabled={mutation.isPending}
-          className="flex-1 py-3 rounded-xl bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2">
-          {mutation.isPending ? <><Loader2 size={16} className="animate-spin" />AI推定中...</> : '記録する'}
+          className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-500 text-sm hover:bg-gray-50">
+          キャンセル
+        </button>
+        <button
+          type="submit"
+          disabled={isLoading || !foodName.trim()}
+          className="flex-1 py-3 rounded-xl bg-green-600 text-white text-sm font-semibold
+                     hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {isLoading ? (
+            <><Loader2 size={16} className="animate-spin" />{hasPfc ? '登録中...' : 'AI推定中...'}</>
+          ) : (
+            hasPfc ? '✓ この内容で記録する' : '🤖 AIで推定して記録する'
+          )}
         </button>
       </div>
     </form>
   )
 }
+
 
 // ── 日付グループ化 ────────────────────────────────────────────
 function groupByDate(meals: Meal[]) {
