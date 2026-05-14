@@ -55,7 +55,7 @@ async def estimate_nutrition(food_name: str, quantity: str) -> NutritionInfo:
     try:
         client = get_client()
         response = client.models.generate_content(
-            model="gemma-4-26b-a4b-it",
+            model=os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash"),
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=(
@@ -106,7 +106,7 @@ async def analyze_food_image(image_bytes: bytes, mime_type: str) -> dict:
     try:
         client = get_client()
         response = client.models.generate_content(
-            model="gemma-4-26b-a4b-it",
+            model=os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash"),
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                 prompt
@@ -290,7 +290,7 @@ async def lookup_barcode(
     try:
         client = get_client()
         response = client.models.generate_content(
-            model="gemma-4-26b-a4b-it",
+            model=os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash"),
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction="あなたは栄養士です。JSONのみを返してください。"

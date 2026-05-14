@@ -19,10 +19,14 @@ class GPSPoint(BaseModel):
 
 class WalkingCreate(BaseModel):
     start_time: datetime
-    end_time: datetime
-    route_points: List[GPSPoint]
+    end_time: Optional[datetime] = None
+    route_points: Optional[List[GPSPoint]] = []
     notes: Optional[str] = None
     manual_distance_km: Optional[float] = None
+    manual_duration_minutes: Optional[float] = None
+
+
+DEFAULT_WALKING_SPEED_KMH = 5.5  # GPS/時間不明時のカロリー推定に使うデフォルト速度
 
 
 def haversine_km(points: List[GPSPoint]) -> float:
@@ -91,12 +95,18 @@ def create_session(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    duration = (data.end_time - data.start_time).total_seconds() / 60
-
     if data.manual_distance_km is not None:
         distance = data.manual_distance_km
     else:
-        distance = haversine_km(data.route_points)
+        distance = haversine_km(data.route_points or [])
+
+    if data.manual_duration_minutes is not None:
+        duration = data.manual_duration_minutes
+    elif data.end_time is not None:
+        duration = (data.end_time - data.start_time).total_seconds() / 60
+    else:
+        # 時間不明の場合はデフォルト速度から推定
+        duration = (distance / DEFAULT_WALKING_SPEED_KMH) * 60 if distance > 0 else 0.0
 
     avg_speed = (distance / (duration / 60)) if duration > 0 else 0.0
 
@@ -112,7 +122,7 @@ def create_session(
         distance_km=distance,
         avg_speed_kmh=round(avg_speed, 2),
         estimated_calories=calories,
-        route_json=json.dumps([p.model_dump() for p in data.route_points]),
+        route_json=json.dumps([p.model_dump() for p in (data.route_points or [])]),
         notes=data.notes,
     )
     db.add(db_s)

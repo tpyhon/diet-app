@@ -151,13 +151,14 @@ export type ImageAnalysisResult = {
 export type WalkingSession = {
   id: number
   start_time: string
-  end_time: string
+  end_time?: string | null
   duration_minutes: number
   distance_km: number
   avg_speed_kmh: number
   estimated_calories: number
   notes?: string
   manual_distance_km?: number
+  route_json?: string | null
 }
 
 export type TrainingPlan = {

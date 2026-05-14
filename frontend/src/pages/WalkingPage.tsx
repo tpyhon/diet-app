@@ -116,11 +116,13 @@ function SessionCard({
             })}
           </span>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400">
-              {new Date(session.start_time).toLocaleTimeString('ja-JP', {
-                hour: '2-digit', minute: '2-digit',
-              })}
-            </span>
+            {session.end_time && (
+              <span className="text-xs text-gray-400">
+                {new Date(session.start_time).toLocaleTimeString('ja-JP', {
+                  hour: '2-digit', minute: '2-digit',
+                })}
+              </span>
+            )}
             {confirmDelete ? (
               <div className="flex items-center gap-1">
                 <span className="text-xs text-red-500">削除する？</span>
@@ -171,19 +173,21 @@ function SessionCard({
         )}
       </div>
 
-      <button
-        onClick={handleShowMap}
-        className="w-full flex items-center justify-center gap-2 py-2.5
-                   bg-gray-50 border-t border-gray-100 text-xs text-gray-500
-                   hover:bg-gray-100 transition-colors"
-      >
-        {loadingRoute
-          ? <Loader2 size={14} className="animate-spin" />
-          : showMap
-          ? <><ChevronUp size={14} />地図を閉じる</>
-          : <><Map size={14} />コースを見る</>
-        }
-      </button>
+      {session.route_json !== '[]' && (
+        <button
+          onClick={handleShowMap}
+          className="w-full flex items-center justify-center gap-2 py-2.5
+                     bg-gray-50 border-t border-gray-100 text-xs text-gray-500
+                     hover:bg-gray-100 transition-colors"
+        >
+          {loadingRoute
+            ? <Loader2 size={14} className="animate-spin" />
+            : showMap
+            ? <><ChevronUp size={14} />地図を閉じる</>
+            : <><Map size={14} />コースを見る</>
+          }
+        </button>
+      )}
 
       {showMap && center && (
         <div className="h-52 px-3 pb-3">
@@ -215,9 +219,18 @@ function SessionCard({
 }
 
 
+const DEFAULT_SPEED_KMH = 5.5  // 時間不明時のカロリー推定デフォルト速度（バックエンドと同値）
+
+function todayDateString(): string {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
+
 // ─── 手動入力フォーム ────────────────────────────────────────
 function ManualEntryForm() {
   const [show, setShow]         = useState(false)
+  const [date, setDate]         = useState(todayDateString)
   const [distance, setDistance] = useState('')
   const [duration, setDuration] = useState('')
   const [notes, setNotes]       = useState('')
@@ -230,6 +243,7 @@ function ManualEntryForm() {
       toast.success('ウォーキングを記録しました！')
       setShow(false)
       setDistance(''); setDuration(''); setNotes('')
+      setDate(todayDateString())
     },
     onError: () => toast.error('記録に失敗しました'),
   })
@@ -237,31 +251,27 @@ function ManualEntryForm() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const dist = parseFloat(distance)
-    const dur  = parseFloat(duration)
     if (isNaN(dist) || dist <= 0) { toast.error('距離を入力してください'); return }
-    if (isNaN(dur)  || dur  <= 0) { toast.error('時間を入力してください'); return }
+    if (!date) { toast.error('日付を入力してください'); return }
 
-    // ← toJSTISOString でJST時刻をそのまま送信
-    const now   = new Date()
-    const start = new Date(now.getTime() - dur * 60 * 1000)
+    const dur = parseFloat(duration)
     mutation.mutate({
-      start_time:         toJSTISOString(start),
-      end_time:           toJSTISOString(now),
-      route_points:       [],
-      manual_distance_km: dist,
-      notes:              notes || '手動入力',
+      start_time:              `${date}T00:00:00`,
+      route_points:            [],
+      manual_distance_km:      dist,
+      manual_duration_minutes: (!isNaN(dur) && dur > 0) ? dur : undefined,
+      notes:                   notes || undefined,
     })
   }
 
-  // カロリープレビュー（METs方式）
-  const previewCalories = (() => {
-    const dist = parseFloat(distance)
-    const dur  = parseFloat(duration)
-    if (!isNaN(dist) && !isNaN(dur) && dist > 0 && dur > 0) {
-      return calcWalkingCalories(dist, dur)
-    }
-    return null
-  })()
+  // 距離が入力されていれば（時間不明でも）カロリーをプレビュー
+  const dist = parseFloat(distance)
+  const dur  = parseFloat(duration)
+  const hasDistance = !isNaN(dist) && dist > 0
+  const hasDuration = !isNaN(dur) && dur > 0
+  const effectiveDur   = hasDuration ? dur : (hasDistance ? (dist / DEFAULT_SPEED_KMH) * 60 : 0)
+  const effectiveSpeed = hasDuration ? dist / (dur / 60) : DEFAULT_SPEED_KMH
+  const previewCalories = hasDistance ? calcWalkingCalories(dist, effectiveDur) : null
 
   if (!show) {
     return (
@@ -271,7 +281,7 @@ function ManualEntryForm() {
                    rounded-2xl text-sm hover:border-gray-300 hover:text-gray-500
                    transition-colors flex items-center justify-center gap-2"
       >
-        <Plus size={16} />距離・時間を手動で入力する
+        <Plus size={16} />過去のウォーキングを手動で入力する
       </button>
     )
   }
@@ -279,15 +289,27 @@ function ManualEntryForm() {
   return (
     <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-5 shadow-sm space-y-4">
       <h3 className="font-semibold text-gray-700 flex items-center gap-2">
-        <Footprints size={18} className="text-cyan-500" />手動入力
+        <Footprints size={18} className="text-cyan-500" />過去の記録を入力
       </h3>
+
+      <div>
+        <label className="text-xs text-gray-500 mb-1 block">日付</label>
+        <input
+          type="date"
+          value={date}
+          max={todayDateString()}
+          onChange={e => setDate(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm
+                     focus:outline-none focus:ring-2 focus:ring-cyan-400"
+        />
+      </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs text-gray-500 mb-1 block">距離 (km)</label>
+          <label className="text-xs text-gray-500 mb-1 block">距離 (km) *</label>
           <div className="relative">
             <input
-              type="number" step="0.1" min="0" placeholder="例：3.5"
+              type="number" step="0.1" min="0" placeholder="例：5.0"
               value={distance} onChange={e => setDistance(e.target.value)}
               className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm
                          focus:outline-none focus:ring-2 focus:ring-cyan-400 pr-10"
@@ -296,10 +318,10 @@ function ManualEntryForm() {
           </div>
         </div>
         <div>
-          <label className="text-xs text-gray-500 mb-1 block">時間 (分)</label>
+          <label className="text-xs text-gray-500 mb-1 block">時間 (分)　任意</label>
           <div className="relative">
             <input
-              type="number" step="1" min="0" placeholder="例：40"
+              type="number" step="1" min="0" placeholder="不明なら空欄"
               value={duration} onChange={e => setDuration(e.target.value)}
               className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm
                          focus:outline-none focus:ring-2 focus:ring-cyan-400 pr-10"
@@ -312,21 +334,20 @@ function ManualEntryForm() {
       <div>
         <label className="text-xs text-gray-500 mb-1 block">メモ（任意）</label>
         <input
-          type="text" placeholder="例：公園コース、雨の日ウォーク"
+          type="text" placeholder="例：公園コース"
           value={notes} onChange={e => setNotes(e.target.value)}
           className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm
                      focus:outline-none focus:ring-2 focus:ring-cyan-400"
         />
       </div>
 
-      {/* カロリープレビュー（METs方式） */}
       {previewCalories !== null && (
         <div className="bg-cyan-50 rounded-xl px-4 py-3 text-sm text-cyan-700">
           推定消費カロリー：約
           <span className="font-bold mx-1">{previewCalories}</span>
           kcal
-          <span className="text-xs text-cyan-400 ml-1">
-            （{(parseFloat(distance) / (parseFloat(duration) / 60)).toFixed(1)} km/h）
+          <span className="text-xs text-cyan-400 ml-2">
+            （{effectiveSpeed.toFixed(1)} km/h{!hasDuration && '・推定'}）
           </span>
         </div>
       )}

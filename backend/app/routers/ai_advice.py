@@ -74,7 +74,7 @@ async def get_advice(
 """
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     response = client.models.generate_content(
-        model="gemma-4-26b-a4b-it",
+        model=os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash"),
         contents=prompt,
         config=types.GenerateContentConfig(
             system_instruction="あなたは親しみやすく熱心なダイエットコーチです。"
@@ -165,7 +165,7 @@ async def generate_training_plan(
 
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     response = client.models.generate_content(
-        model="gemma-4-26b-a4b-it",
+        model=os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash"),
         contents=prompt,
         config=types.GenerateContentConfig(
             system_instruction="あなたはトレーニングの専門家です。必ずJSONのみを返してください。"
