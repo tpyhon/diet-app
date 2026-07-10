@@ -255,8 +255,17 @@ function ManualEntryForm() {
     if (!date) { toast.error('日付を入力してください'); return }
 
     const dur = parseFloat(duration)
+    const effectiveMinutes = (!isNaN(dur) && dur > 0)
+      ? dur
+      : (dist / DEFAULT_SPEED_KMH) * 60
+    const startDt = new Date(`${date}T00:00:00`)
+    const endDt   = new Date(startDt.getTime() + effectiveMinutes * 60 * 1000)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const toLocal = (d: Date) =>
+      `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
     mutation.mutate({
-      start_time:              `${date}T00:00:00`,
+      start_time:              toLocal(startDt),
+      end_time:                toLocal(endDt),
       route_points:            [],
       manual_distance_km:      dist,
       manual_duration_minutes: (!isNaN(dur) && dur > 0) ? dur : undefined,

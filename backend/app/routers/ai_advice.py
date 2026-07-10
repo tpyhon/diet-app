@@ -9,7 +9,7 @@ from app.models.training import TrainingLog, TrainingPlan
 from app.models.weight import WeightRecord
 from app.models.user import User
 from app.auth import get_current_user
-from app.utils import now_jst
+from app.utils import now_jst, parse_json_from_llm
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
@@ -72,13 +72,11 @@ async def get_advice(
 ■ 来週の目標（具体的に2つ）
 ■ 激励メッセージ
 """
+    prompt = f"【システム指示：あなたは親しみやすく熱心なダイエットコーチです。】\n\n{prompt}"
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     response = client.models.generate_content(
         model=os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash"),
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction="あなたは親しみやすく熱心なダイエットコーチです。"
-        )
+        contents=prompt
     )
     return {
         "advice": response.text,
@@ -163,33 +161,17 @@ async def generate_training_plan(
 - {level_map.get(req.fitness_level)}向けの適切な負荷にする
 """
 
+    prompt = f"【システム指示：あなたはトレーニングの専門家です。必ずJSONのみを返してください。】\n\n{prompt}"
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     response = client.models.generate_content(
         model=os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash"),
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction="あなたはトレーニングの専門家です。必ずJSONのみを返してください。"
-        )
+        contents=prompt
     )
 
-    raw = response.text.strip()
-    if "```" in raw:
-        parts = raw.split("```")
-        for part in parts:
-            part = part.strip()
-            if part.startswith("json"):
-                part = part[4:].strip()
-            if part.startswith("{"):
-                raw = part
-                break
-    raw   = raw.strip()
-    start = raw.find("{"); end = raw.rfind("}") + 1
-    if start != -1 and end > start:
-        raw = raw[start:end]
-
     try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
+        raw = response.text
+        data = parse_json_from_llm(raw)
+    except Exception as e:
         print(f"JSON parse error: {e}")
         return {
             "error":       "AIの応答をパースできませんでした",

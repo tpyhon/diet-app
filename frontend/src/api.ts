@@ -64,6 +64,8 @@ export const analyzeFoodImage = (file: File, mealType: string) => {
 }
 export const lookupBarcode = (barcode: string) =>
   api.get(`/meals/barcode/${barcode}`)
+export const suggestPfcMeals = () =>
+  api.post<AiMealPlanResponse>('/meals/ai-plan')
 
 // ── ウォーキング ────────────────────────────────
 export const fetchWalkingSessions  = () => api.get('/walking/')
@@ -146,6 +148,22 @@ export type ImageAnalysisResult = {
   fat_g: number
   carbs_g: number
   description: string
+}
+
+export type AiMealSuggestion = {
+  meal_type: string
+  food_name: string
+  quantity: string
+  estimated_calories: number
+  protein_g: number
+  fat_g: number
+  carbs_g: number
+  description: string
+}
+
+export type AiMealPlanResponse = {
+  suggestions: AiMealSuggestion[]
+  general_comment: string
 }
 
 export type WalkingSession = {

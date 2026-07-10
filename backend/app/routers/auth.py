@@ -9,6 +9,7 @@ from app.models.user import User
 from app.auth import hash_password, verify_password, create_access_token, get_current_user
 from google import genai
 from google.genai import types
+from app.utils import parse_json_from_llm
 import os, json
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -246,27 +247,14 @@ async def suggest_calorie_goal(
     reason       = ""
 
     try:
+        prompt = f"【システム指示：あなたは栄養の専門家です。JSONのみを返してください。】\n\n{prompt}"
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
         response = client.models.generate_content(
             model=os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash"),
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction="あなたは栄養の専門家です。JSONのみを返してください。"
-            )
+            contents=prompt
         )
-        raw = response.text.strip()
-        if "```" in raw:
-            for part in raw.split("```"):
-                part = part.strip()
-                if part.startswith("json"):
-                    part = part[4:].strip()
-                if part.startswith("{"):
-                    raw = part
-                    break
-        start = raw.find("{"); end = raw.rfind("}") + 1
-        if start != -1 and end > start:
-            raw = raw[start:end]
-        data        = json.loads(raw)
+        raw = response.text
+        data = parse_json_from_llm(raw)
         suggested   = int(data.get("calorie_goal", 2000))
         ai_protein_g = data.get("protein_g")
         ai_fat_g     = data.get("fat_g")

@@ -4,13 +4,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   fetchMeals, createMeal, deleteMeal,
   analyzeFoodImage, createMealWithCalories, lookupBarcode,
+  suggestPfcMeals,
 } from '../api'
-import type { Meal, ImageAnalysisResult } from '../api'
+import type { Meal, ImageAnalysisResult, AiMealSuggestion, AiMealPlanResponse } from '../api'
 import toast from 'react-hot-toast'
 import {
   Plus, Trash2, Loader2, UtensilsCrossed,
   Camera, Type, CheckCircle2, RefreshCw, X, Barcode,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Sparkles,
 } from 'lucide-react'
 
 // バーコードスキャナーは動的インポート（重いライブラリのため）
@@ -777,6 +778,196 @@ function AddMealForm({ onClose }: { onClose: () => void }) {
 
 
 // ── 日付グループ化 ────────────────────────────────────────────
+type AiPlanModalProps = {
+  isOpen: boolean
+  onClose: () => void
+}
+
+function AiPlanModal({ isOpen, onClose }: AiPlanModalProps) {
+  const [loading, setLoading] = useState(false)
+  const [plan, setPlan] = useState<AiMealPlanResponse | null>(null)
+  const queryClient = useQueryClient()
+
+  // AI食事プランの取得
+  const generatePlan = async () => {
+    setLoading(true)
+    setPlan(null)
+    try {
+      const res = await suggestPfcMeals()
+      setPlan(res.data)
+      toast.success('AI食事プランを生成しました！')
+    } catch (err) {
+      toast.error('AI食事プランの生成に失敗しました')
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 提案された食事を記録する
+  const addMealMutation = useMutation({
+    mutationFn: createMealWithCalories,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meals'] })
+      queryClient.invalidateQueries({ queryKey: ['todayMeals'] })
+      toast.success('食事を記録しました！')
+    },
+    onError: () => toast.error('食事の記録に失敗しました'),
+  })
+
+  const handleAddMeal = (suggestion: AiMealSuggestion) => {
+    addMealMutation.mutate({
+      meal_type: suggestion.meal_type,
+      food_name: suggestion.food_name,
+      quantity: suggestion.quantity,
+      estimated_calories: suggestion.estimated_calories,
+      protein_g: suggestion.protein_g,
+      fat_g: suggestion.fat_g,
+      carbs_g: suggestion.carbs_g,
+      notes: suggestion.description,
+    })
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+        
+        {/* ヘッダー */}
+        <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-orange-500 to-amber-500 text-white">
+          <div className="flex items-center gap-2">
+            <Sparkles size={20} className="animate-pulse" />
+            <h3 className="font-bold text-base">🤖 AI食事プラン</h3>
+          </div>
+          <button onClick={onClose} className="hover:bg-white/20 p-1.5 rounded-full transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* コンテンツ */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {!plan && !loading && (
+            <div className="text-center py-8 space-y-4">
+              <div className="bg-orange-50 text-orange-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                <Sparkles size={32} />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-gray-700 text-sm">目標残PFCからAI食事プランを生成</h4>
+                <p className="text-xs text-gray-400 max-w-[280px] mx-auto leading-relaxed">
+                  今日の現在の摂取データ、目標PFC、および最近の食事履歴を考慮して、Gemmaが最適なメニューをご提案します。
+                </p>
+              </div>
+              <button
+                onClick={generatePlan}
+                className="bg-gradient-to-r from-orange-500 to-amber-500 text-white font-bold text-sm px-6 py-3 rounded-2xl hover:from-orange-600 hover:to-amber-600 transition-all shadow-md active:scale-95"
+              >
+                プランを作成する
+              </button>
+            </div>
+          )}
+
+          {loading && (
+            <div className="text-center py-16 space-y-4">
+              <Loader2 size={36} className="animate-spin text-orange-500 mx-auto" />
+              <div className="space-y-1.5">
+                <p className="text-sm font-semibold text-gray-600 animate-pulse">Gemma AI が考案中...</p>
+                <div className="text-xs text-gray-400 space-y-0.5">
+                  <p>✓ 今日の残りPFCを計算しています</p>
+                  <p>✓ 最近のメニューとの重複をチェックしています</p>
+                  <p>✓ バランスの良い食材を組み合わせています</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {plan && (
+            <div className="space-y-4 animate-in fade-in duration-300">
+              
+              {/* 総評 */}
+              {plan.general_comment && (
+                <div className="bg-orange-50/70 border border-orange-100 rounded-2xl p-4 text-xs text-orange-800 leading-relaxed shadow-sm">
+                  <span className="font-bold block mb-1 text-orange-600">💡 AIアドバイス</span>
+                  {plan.general_comment}
+                </div>
+              )}
+
+              {/* 提案リスト */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">ご提案メニュー</h4>
+                {plan.suggestions.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-4">提案できる食事がありません。すでにすべての食事が記録されている可能性があります。</p>
+                ) : (
+                  plan.suggestions.map((s, idx) => {
+                    const mealTypeLabel = MEAL_TYPE_LABELS[s.meal_type] || s.meal_type
+                    return (
+                      <div key={idx} className="border border-gray-100 rounded-2xl p-4 bg-white shadow-sm hover:shadow-md transition-all space-y-2.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-0.5">
+                            <span className="inline-block text-[10px] font-bold bg-orange-100 text-orange-600 rounded-full px-2 py-0.5 mb-1">
+                              {mealTypeLabel}の提案
+                            </span>
+                            <h5 className="font-bold text-sm text-gray-800 leading-tight">{s.food_name}</h5>
+                            <p className="text-xs text-gray-400">{s.quantity}</p>
+                          </div>
+                          
+                          <button
+                            onClick={() => handleAddMeal(s)}
+                            disabled={addMealMutation.isPending}
+                            className="bg-green-50 text-green-600 hover:bg-green-100 p-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-sm border border-green-100 shrink-0 hover:scale-105 active:scale-95"
+                          >
+                            <Plus size={14} /> 記録
+                          </button>
+                        </div>
+
+                        {/* カロリー & PFC */}
+                        <div className="bg-gray-50/50 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                          <div className="font-bold text-orange-500 text-sm">
+                            {Math.round(s.estimated_calories)} <span className="text-[10px] font-normal text-gray-400">kcal</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <span className="text-[10px] bg-blue-50 text-blue-500 rounded-lg px-2 py-0.5 font-bold">
+                              P {s.protein_g.toFixed(1)}g
+                            </span>
+                            <span className="text-[10px] bg-yellow-50 text-yellow-600 rounded-lg px-2 py-0.5 font-bold">
+                              F {s.fat_g.toFixed(1)}g
+                            </span>
+                            <span className="text-[10px] bg-green-50 text-green-600 rounded-lg px-2 py-0.5 font-bold">
+                              C {s.carbs_g.toFixed(1)}g
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Rationale */}
+                        {s.description && (
+                          <p className="text-[11px] text-gray-500 italic bg-gray-50/30 rounded-xl px-3 py-2 border-l-2 border-orange-400">
+                            {s.description}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+              
+              {/* 再生成ボタン */}
+              <button
+                onClick={generatePlan}
+                disabled={loading}
+                className="w-full py-3 border border-orange-200 text-orange-500 rounded-2xl text-xs font-bold hover:bg-orange-50 transition-all flex items-center justify-center gap-1.5"
+              >
+                <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+                別のプランを再提案してもらう
+              </button>
+
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function groupByDate(meals: Meal[]) {
   return meals.reduce((acc, meal) => {
     const date = new Date(meal.date).toLocaleDateString('ja-JP', {
@@ -791,6 +982,7 @@ function groupByDate(meals: Meal[]) {
 // ── メインページ ──────────────────────────────────────────────
 export default function MealPage() {
   const [showMode, setShowMode] = useState<'none' | 'text' | 'image' | 'barcode'>('none')
+  const [showAiPlan, setShowAiPlan] = useState(false)
   const queryClient = useQueryClient()
 
   const { data: meals = [], isLoading } = useQuery({
@@ -844,6 +1036,29 @@ export default function MealPage() {
           <Loader2 className="animate-spin text-green-500" size={28} />
         </div>
       )}
+
+      {/* 🤖 AI食事プラン バナー */}
+      <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-yellow-500 rounded-3xl p-4.5 text-white shadow-md flex items-center justify-between gap-4 transition-all hover:scale-[1.01] hover:shadow-lg relative overflow-hidden group">
+        <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+        <div className="space-y-1 relative z-10">
+          <div className="flex items-center gap-1.5">
+            <span className="bg-white/20 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border border-white/20">AI Recommended</span>
+          </div>
+          <h3 className="font-bold text-sm flex items-center gap-1.5">
+            <Sparkles size={15} className="text-yellow-200" />
+            AI食事プラン
+          </h3>
+          <p className="text-[10px] text-orange-50 mt-0.5 max-w-[240px] leading-snug">
+            残りPFCと最近食べたメニューから、Gemmaが最適な食事を提案します。
+          </p>
+        </div>
+        <button
+          onClick={() => setShowAiPlan(true)}
+          className="bg-white text-orange-600 hover:bg-orange-50 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 shadow-sm flex items-center gap-1 active:scale-95"
+        >
+          提案をみる
+        </button>
+      </div>
 
       {/* 食事リスト */}
       {Object.entries(grouped).map(([date, dateMeals]) => {
@@ -901,6 +1116,8 @@ export default function MealPage() {
           <p className="text-xs mt-1">📦 バーコード / 📸 写真 / ✏️ テキストから記録しましょう</p>
         </div>
       )}
+
+      <AiPlanModal isOpen={showAiPlan} onClose={() => setShowAiPlan(false)} />
     </div>
   )
 }

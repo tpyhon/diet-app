@@ -27,3 +27,22 @@ def jst_range_today():
     start = datetime(today.year, today.month, today.day, 0, 0, 0)
     end   = datetime(today.year, today.month, today.day, 23, 59, 59)
     return start, end
+
+def parse_json_from_llm(raw: str) -> dict:
+    """LLMの応答テキストからJSON部分を抽出し、辞書としてパースするヘルパー。"""
+    raw = raw.strip()
+    if "```" in raw:
+        for part in raw.split("```"):
+            part = part.strip()
+            if part.startswith("json"):
+                part = part[4:].strip()
+            if part.startswith("{"):
+                raw = part
+                break
+    start = raw.find("{")
+    end = raw.rfind("}") + 1
+    if start != -1 and end > start:
+        raw = raw[start:end]
+    import json
+    return json.loads(raw)
+
