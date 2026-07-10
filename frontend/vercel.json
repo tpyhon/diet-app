@@ -5,7 +5,7 @@
       "destination": "https://diet-app-backend-u6zo.onrender.com/api/:path*"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]
