@@ -33,27 +33,6 @@ function getBodyPartLabel(bp: string) {
   return BODY_PARTS.find(b => b.value === bp)?.label ?? bp
 }
 
-// ─── XPバー ─────────────────────────────────────────────
-function XpBar({ xp, nextXp, level }: { xp: number; nextXp: number; level: number }) {
-  const prevXp = LEVEL_XP[level - 1] ?? 0
-  const pct = Math.min(100, Math.round(((xp - prevXp) / (nextXp - prevXp)) * 100))
-  return (
-    <div>
-      <div className="flex justify-between text-xs text-gray-500 mb-1">
-        <span className="font-semibold">Lv.{level}</span>
-        <span>{xp} / {nextXp} XP</span>
-      </div>
-      <div className="w-full bg-gray-200 rounded-full h-3">
-        <div
-          className="bg-gradient-to-r from-yellow-400 to-orange-500 h-3 rounded-full transition-all duration-700"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <div className="text-right text-xs text-gray-400 mt-0.5">次のレベルまで {nextXp - xp} XP</div>
-    </div>
-  )
-}
-
 // ─── プラン作成フォーム ────────────────────────────────────
 function CreatePlanForm({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('')

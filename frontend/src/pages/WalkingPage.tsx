@@ -10,7 +10,7 @@ import toast from 'react-hot-toast'
 import {
   Footprints, Play, Square, MapPin,
   Clock, Zap, Navigation, Loader2,
-  ChevronDown, ChevronUp, Map, Plus, Trash2,
+  ChevronUp, Map, Plus, Trash2,
 } from 'lucide-react'
 import 'leaflet/dist/leaflet.css'
 

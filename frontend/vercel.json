@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://diet-app-backend.onrender.com/api/:path*"
+      "destination": "https://diet-app-backend-u6zo.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",

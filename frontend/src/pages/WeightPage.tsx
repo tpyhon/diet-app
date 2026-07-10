@@ -8,7 +8,7 @@ import type { WeightRecord, WeightGoalCreate } from '../api'
 import toast from 'react-hot-toast'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, Legend
+  Tooltip, ResponsiveContainer, ReferenceLine
 } from 'recharts'
 import {
   Scale, Plus, Trash2, Loader2,
