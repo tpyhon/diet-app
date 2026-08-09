@@ -4,7 +4,7 @@ import {
   fetchWeightHistory, createWeight, deleteWeight,
   fetchWeightGoal, setWeightGoal, fetchPredictionData
 } from '../api'
-import type { WeightRecord, WeightGoalCreate } from '../api'
+import type { WeightRecord, WeightGoalCreate, MetabolicAlert } from '../api'
 import toast from 'react-hot-toast'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -13,7 +13,7 @@ import {
 import {
   Scale, Plus, Trash2, Loader2,
   TrendingDown, TrendingUp, Minus,
-  Target, Trophy, CalendarCheck, X
+  Target, Trophy, CalendarCheck, X, BatteryLow
 } from 'lucide-react'
 
 const PERIODS = [
@@ -370,6 +370,17 @@ export default function WeightPage() {
       )}
       {showForm === 'weight' && (
         <AddWeightForm onClose={() => setShowForm('none')} />
+      )}
+
+      {/* 代謝適応アラート */}
+      {(goalData?.metabolic_alert as MetabolicAlert | undefined)?.has_alert && (
+        <div className="flex items-start gap-2 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+          <BatteryLow size={18} className="text-indigo-500 mt-0.5 shrink-0" />
+          <div className="text-sm text-indigo-700">
+            <p className="font-semibold mb-0.5">{goalData.metabolic_alert.title}</p>
+            <p className="text-indigo-500 text-xs">{goalData.metabolic_alert.message}</p>
+          </div>
+        </div>
       )}
 
       {/* 目標達成バナー */}
