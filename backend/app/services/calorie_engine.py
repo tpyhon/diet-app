@@ -23,6 +23,11 @@ DEFAULT_PAL = ACTIVITY_PAL_MAP["lightly"]
 PACE_OPTIONS_PCT = [0.25, 0.5, 0.75, 1.0]   # 週あたり目標減量ペース(%)の選択肢
 DEFAULT_PACE_PCT = 0.5
 
+ADAPTIVE_WINDOW_DAYS   = 14    # 実測TDEE算出に使う過去データウィンドウ(日)
+ADAPTIVE_MIN_VALID_DAYS = 10   # この日数未満の有効データしか無い場合は静的TDEEにフォールバック
+ADAPTIVE_CALC_RATIO    = 0.7   # Final_TDEEにおける実測修正TDEEの重み
+ADAPTIVE_STATIC_RATIO  = 0.3   # Final_TDEEにおける静的TDEEの重み
+
 
 def calc_bmr(user: User) -> Optional[float]:
     """Harris–Benedict式による基礎代謝量(BMR)の算出。"""
@@ -97,6 +102,26 @@ def calc_pfc_from_lbm(target_calories: float, lbm_kg: float) -> dict:
             "carbs_pct":   round(carbs_kcal   / total * 100) if total else 0,
         },
     }
+
+
+def calc_calculated_tdee(avg_cal_in: float, delta_weight_kg: float, window_days: int = ADAPTIVE_WINDOW_DAYS) -> float:
+    """
+    過去Nウィンドウの実測データから逆算した「実測修正TDEE」の算出。
+        Energy_Balance   = (ΔWeight × 7200) / window_days
+        Calculated_TDEE  = Avg_CalIn - Energy_Balance
+    体重が増えた(ΔWeight>0)ならエネルギー余剰があった=摂取から差し引き、
+    体重が減った(ΔWeight<0)ならエネルギー赤字があった=摂取に上乗せしてTDEEを推定する。
+    """
+    energy_balance = (delta_weight_kg * FAT_KCAL_PER_KG) / window_days
+    return avg_cal_in - energy_balance
+
+
+def blend_final_tdee(calculated_tdee: float, static_tdee: float) -> float:
+    """
+    実測修正TDEEと静的TDEEをEMA的にブレンドし、急激な変動を防ぐ。
+        Final_TDEE = (Calculated_TDEE × 0.7) + (静的TDEE × 0.3)
+    """
+    return calculated_tdee * ADAPTIVE_CALC_RATIO + static_tdee * ADAPTIVE_STATIC_RATIO
 
 
 def estimate_training_calories(duration_minutes: Optional[float], weight_kg: float) -> float:
