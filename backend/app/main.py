@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from app.database import Base, engine
 from app.routers import meals, walking, training, weight, ai_advice
 from app.routers import auth                           # ← 追加
+from app.routers import tdee                            # ← 追加（動的TDEE）
 from app.models import meal as meal_model
 from app.models import walking as walking_model
 from app.models import training as training_model
@@ -30,6 +31,7 @@ app.include_router(walking.router)
 app.include_router(training.router)
 app.include_router(weight.router)
 app.include_router(ai_advice.router)
+app.include_router(tdee.router)
 
 @app.get("/")
 def root():

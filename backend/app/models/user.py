@@ -21,3 +21,7 @@ class User(Base):
     activity_level   = Column(String(20), nullable=True)        # sedentary/lightly/moderately/very/super
     diet_goal        = Column(String(20), nullable=True)        # lose / maintain / gain
     calorie_goal     = Column(Integer,  nullable=True)          # 1日カロリー目標 kcal（手動 or AI設定）
+
+    # ── 動的TDEE / EAガード用 ────────────────────────────────
+    body_fat_pct     = Column(Float,    nullable=True)          # 体脂肪率 %（LBM算出に使用）
+    pace_pct         = Column(Float,    nullable=True)          # 目標減量ペース（週あたり体重%。0.25/0.5/0.75/1.0）

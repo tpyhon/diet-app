@@ -46,6 +46,7 @@ export const registerApi = (username: string, password: string, display_name?: s
 export const fetchProfile          = () => api.get('/auth/me')
 export const updateProfile         = (data: ProfileUpdate) => api.put('/auth/profile', data)
 export const suggestCalorieGoal    = () => api.post('/auth/suggest-calorie-goal')
+export const fetchDynamicTdee      = () => api.get<DynamicTdeeResult>('/tdee/today')
 
 // ── 食事 ──────────────────────────────────────
 export const fetchTodayMeals       = () => api.get('/meals/today')
@@ -254,6 +255,8 @@ export type UserProfile = {
   activity_level?: 'sedentary' | 'lightly' | 'moderately' | 'very' | 'super'
   diet_goal?: 'lose' | 'maintain' | 'gain'
   calorie_goal: number
+  body_fat_pct?: number
+  pace_pct?: number
   recommended_pfc?: RecommendedPfc  // ← これが抜けていた
 }
 
@@ -267,4 +270,22 @@ export type ProfileUpdate = {
   activity_level?: 'sedentary' | 'lightly' | 'moderately' | 'very' | 'super'
   diet_goal?: 'lose' | 'maintain' | 'gain'
   calorie_goal?: number
+  body_fat_pct?: number
+  pace_pct?: number
+}
+
+// ── 動的TDEE ─────────────────────────────────────────────────
+export type DynamicTdeeResult = {
+  bmr: number
+  pal: number
+  exercise_calories_today: number
+  tdee: number
+  pace_pct: number
+  target_deficit: number
+  base_target_calories: number
+  target_calories: number
+  lbm_kg: number | null
+  ea_value: number | null
+  ea_guard_active: boolean
+  recommended_pfc: RecommendedPfc | null
 }

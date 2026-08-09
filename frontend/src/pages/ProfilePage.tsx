@@ -1,10 +1,17 @@
 // frontend/src/pages/ProfilePage.tsx
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchProfile, updateProfile, suggestCalorieGoal } from '../api'
-import type { UserProfile, ProfileUpdate, RecommendedPfc } from '../api'
+import { fetchProfile, updateProfile, suggestCalorieGoal, fetchDynamicTdee } from '../api'
+import type { UserProfile, ProfileUpdate, RecommendedPfc, DynamicTdeeResult } from '../api'
 import toast from 'react-hot-toast'
-import { User, Sparkles, Loader2, Save, Bot, Target } from 'lucide-react'
+import { User, Sparkles, Loader2, Save, Bot, Target, Gauge, ShieldAlert } from 'lucide-react'
+
+const PACE_OPTIONS = [
+  { value: '0.25', label: '0.25%（ゆっくり）' },
+  { value: '0.5',  label: '0.5%（標準）' },
+  { value: '0.75', label: '0.75%（やや積極的）' },
+  { value: '1.0',  label: '1.0%（積極的）' },
+]
 
 // ── セレクトフィールドコンポーネント ─────────────────────────
 function SelectField({
@@ -164,6 +171,62 @@ function CalorieGoalCard({
   )
 }
 
+// ── 動的TDEEカードコンポーネント ─────────────────────────────
+function DynamicTdeeCard({ tdee }: { tdee: DynamicTdeeResult }) {
+  return (
+    <div className="bg-white rounded-2xl p-5 shadow-sm space-y-4 border border-cyan-100">
+      <div className="flex items-center gap-2">
+        <Gauge size={16} className="text-cyan-500" />
+        <span className="font-semibold text-gray-700 text-sm">今日の動的カロリー目標</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-center">
+        <div className="bg-gray-50 rounded-xl p-3">
+          <div className="text-xs text-gray-400 mb-1">BMR</div>
+          <div className="text-lg font-bold text-gray-700">{tdee.bmr}</div>
+        </div>
+        <div className="bg-gray-50 rounded-xl p-3">
+          <div className="text-xs text-gray-400 mb-1">運動消費（本日）</div>
+          <div className="text-lg font-bold text-gray-700">{tdee.exercise_calories_today}</div>
+        </div>
+        <div className="bg-gray-50 rounded-xl p-3">
+          <div className="text-xs text-gray-400 mb-1">動的TDEE</div>
+          <div className="text-lg font-bold text-gray-700">{tdee.tdee}</div>
+        </div>
+        <div className="bg-gray-50 rounded-xl p-3">
+          <div className="text-xs text-gray-400 mb-1">目標赤字（ペース{tdee.pace_pct}%）</div>
+          <div className="text-lg font-bold text-gray-700">-{tdee.target_deficit}</div>
+        </div>
+      </div>
+
+      <div className="bg-cyan-50 rounded-xl p-4 text-center">
+        <div className="text-xs text-cyan-500 mb-1">最終目標カロリー / 日</div>
+        <div className="text-3xl font-bold text-cyan-600">{tdee.target_calories}<span className="text-sm ml-1">kcal</span></div>
+        {tdee.target_calories !== tdee.base_target_calories && (
+          <div className="text-xs text-cyan-400 mt-1">（赤字ベース計算値: {tdee.base_target_calories} kcal）</div>
+        )}
+      </div>
+
+      {tdee.ea_guard_active && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
+          <ShieldAlert size={16} className="text-red-500 mt-0.5 shrink-0" />
+          <span className="text-xs text-red-600">
+            健康上の安全のため最小カロリーに制限中です（EA: {tdee.ea_value} kcal/kgLBM）
+          </span>
+        </div>
+      )}
+
+      {tdee.recommended_pfc ? (
+        <RecommendedPfcCard pfc={tdee.recommended_pfc} />
+      ) : (
+        <p className="text-xs text-gray-400">
+          ※ 体脂肪率を入力するとLBMベースのPFC配分が表示されます
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── メインページ ──────────────────────────────────────────────
 export default function ProfilePage() {
   const queryClient = useQueryClient()
@@ -182,7 +245,17 @@ export default function ProfilePage() {
   const [activityLevel, setActivityLevel] = useState('')
   const [dietGoal, setDietGoal]           = useState('')
   const [calorieGoal, setCalorieGoal]     = useState('')
+  const [bodyFatPct, setBodyFatPct]       = useState('')
+  const [pacePct, setPacePct]             = useState('0.5')
   const [initialized, setInitialized]     = useState(false)
+
+  // 動的TDEE（年齢・性別・身長・体重が揃っていれば取得）
+  const tdeeReady = !!(profile?.age && profile?.gender && profile?.height_cm && profile?.weight_kg)
+  const { data: dynamicTdee } = useQuery<DynamicTdeeResult>({
+    queryKey: ['dynamic-tdee'],
+    queryFn: () => fetchDynamicTdee().then(r => r.data),
+    enabled: tdeeReady,
+  })
 
   // AI提案結果のPFCを一時保持（保存前の表示用）
   const [suggestedPfc, setSuggestedPfc] = useState<RecommendedPfc | null>(null)
@@ -196,6 +269,8 @@ export default function ProfilePage() {
     setActivityLevel(profile.activity_level ?? '')
     setDietGoal(profile.diet_goal ?? '')
     setCalorieGoal(profile.calorie_goal?.toString() ?? '2000')
+    setBodyFatPct(profile.body_fat_pct?.toString() ?? '')
+    setPacePct(profile.pace_pct?.toString() ?? '0.5')
     setInitialized(true)
   }
 
@@ -209,6 +284,7 @@ export default function ProfilePage() {
       if (!suggestedPfc && res.data.recommended_pfc) {
         setSuggestedPfc(res.data.recommended_pfc)
       }
+      queryClient.invalidateQueries({ queryKey: ['dynamic-tdee'] })
       toast.success('プロフィールを保存しました')
     },
     onError: () => toast.error('保存に失敗しました'),
@@ -241,6 +317,8 @@ export default function ProfilePage() {
     if (activityLevel) data.activity_level = activityLevel as ProfileUpdate['activity_level']
     if (dietGoal)      data.diet_goal      = dietGoal as ProfileUpdate['diet_goal']
     if (calorieGoal)   data.calorie_goal   = parseInt(calorieGoal)
+    if (bodyFatPct)    data.body_fat_pct   = parseFloat(bodyFatPct)
+    if (pacePct)       data.pace_pct       = parseFloat(pacePct)
     updateMutation.mutate(data)
   }
 
@@ -311,6 +389,9 @@ export default function ProfilePage() {
           <NumberField label="体重（基準値）" value={weightKg} onChange={setWeightKg}
             unit="kg" placeholder="65" min={30} max={200} />
         </div>
+
+        <NumberField label="体脂肪率（LBMベースPFC算出に使用）" value={bodyFatPct} onChange={setBodyFatPct}
+          unit="%" placeholder="20" min={3} max={60} />
       </div>
 
       {/* 活動・目標設定 */}
@@ -344,7 +425,14 @@ export default function ProfilePage() {
           onChange={setCalorieGoal}
           unit="kcal" placeholder="2000" min={1000} max={5000}
         />
+
+        <SelectField label="目標減量ペース（週あたり体重比）" value={pacePct} onChange={setPacePct}
+          options={PACE_OPTIONS}
+        />
       </div>
+
+      {/* 動的TDEEカード */}
+      {dynamicTdee && <DynamicTdeeCard tdee={dynamicTdee} />}
 
       {/* 保存ボタン */}
       <button

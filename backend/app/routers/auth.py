@@ -7,6 +7,7 @@ from typing import Optional
 from app.database import get_db
 from app.models.user import User
 from app.auth import hash_password, verify_password, create_access_token, get_current_user
+from app.services.calorie_engine import calc_bmr, ACTIVITY_PAL_MAP
 from google import genai
 from google.genai import types
 from app.utils import parse_json_from_llm
@@ -31,30 +32,18 @@ class ProfileUpdate(BaseModel):
     activity_level: Optional[str]   = None   # sedentary/lightly/moderately/very/super
     diet_goal:      Optional[str]   = None   # lose / maintain / gain
     calorie_goal:   Optional[int]   = None   # 手動設定
+    body_fat_pct:   Optional[float] = None   # 体脂肪率 %
+    pace_pct:       Optional[float] = None   # 目標減量ペース（週あたり体重%）
 
 
 # ── ヘルパー ──────────────────────────────────────────────────
-
-ACTIVITY_MAP = {
-    "sedentary":  1.2,
-    "lightly":    1.375,
-    "moderately": 1.55,
-    "very":       1.725,
-    "super":      1.9,
-}
 
 def calc_tdee(user: User) -> Optional[int]:
     """Harris–Benedict式でTDEEを計算してカロリー目標を返す。"""
     if not all([user.age, user.gender, user.height_cm, user.weight_kg, user.activity_level]):
         return None
-    w = user.weight_kg
-    h = user.height_cm
-    a = user.age
-    if user.gender == "male":
-        bmr = 88.362 + 13.397 * w + 4.799 * h - 5.677 * a
-    else:
-        bmr = 447.593 + 9.247 * w + 3.098 * h - 4.330 * a
-    tdee = bmr * ACTIVITY_MAP.get(user.activity_level, 1.55)
+    bmr = calc_bmr(user)
+    tdee = bmr * ACTIVITY_PAL_MAP.get(user.activity_level, 1.55)
     if user.diet_goal == "lose":
         tdee -= 500
     elif user.diet_goal == "gain":
@@ -146,6 +135,8 @@ def me(current_user: User = Depends(get_current_user)):
         "activity_level": current_user.activity_level,
         "diet_goal":      current_user.diet_goal,
         "calorie_goal":   calorie_goal,
+        "body_fat_pct":   current_user.body_fat_pct,
+        "pace_pct":       current_user.pace_pct,
         "recommended_pfc": pfc,
     }
 
@@ -181,6 +172,8 @@ def update_profile(
         "activity_level": current_user.activity_level,
         "diet_goal":      current_user.diet_goal,
         "calorie_goal":   calorie_goal,
+        "body_fat_pct":   current_user.body_fat_pct,
+        "pace_pct":       current_user.pace_pct,
         "recommended_pfc": pfc,
     }
 
