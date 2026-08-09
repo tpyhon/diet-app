@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchProfile, updateProfile, suggestCalorieGoal, fetchDynamicTdee } from '../api'
 import type { UserProfile, ProfileUpdate, RecommendedPfc, DynamicTdeeResult } from '../api'
 import toast from 'react-hot-toast'
-import { User, Sparkles, Loader2, Save, Bot, Target, Gauge, ShieldAlert } from 'lucide-react'
+import { User, Sparkles, Loader2, Save, Bot, Target, Gauge, ShieldAlert, BatteryLow } from 'lucide-react'
 
 const PACE_OPTIONS = [
   { value: '0.25', label: '0.25%（ゆっくり）' },
@@ -192,6 +192,16 @@ function DynamicTdeeCard({ tdee }: { tdee: DynamicTdeeResult }) {
           </span>
         )}
       </div>
+
+      {tdee.metabolic_alert?.has_alert && (
+        <div className="flex items-start gap-2 bg-indigo-50 border border-indigo-200 rounded-xl p-3">
+          <BatteryLow size={16} className="text-indigo-500 mt-0.5 shrink-0" />
+          <div className="text-xs text-indigo-700">
+            <p className="font-semibold mb-0.5">{tdee.metabolic_alert.title}</p>
+            <p className="text-indigo-500">{tdee.metabolic_alert.message}</p>
+          </div>
+        </div>
+      )}
 
       {tdee.needs_recalibration && (
         <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">

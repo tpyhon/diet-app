@@ -275,6 +275,14 @@ export type ProfileUpdate = {
   pace_pct?: number
 }
 
+// ── 代謝適応アラート ─────────────────────────────────────────
+export type MetabolicAlert = {
+  has_alert: boolean
+  alert_type: string | null
+  title: string | null
+  message: string | null
+}
+
 // ── 動的TDEE ─────────────────────────────────────────────────
 export type DynamicTdeeResult = {
   bmr: number
@@ -298,4 +306,5 @@ export type DynamicTdeeResult = {
   ea_value: number | null
   ea_guard_active: boolean
   recommended_pfc: RecommendedPfc | null
+  metabolic_alert: MetabolicAlert
 }

@@ -9,7 +9,11 @@ from app.models.weight import WeightRecord, WeightGoal
 from app.models.user import User
 from app.auth import get_current_user
 from app.utils import now_jst
-from app.services.calorie_engine import calc_weight_ema_series
+from app.services.calorie_engine import (
+    calc_weight_ema_series, calc_bmr, calc_dynamic_tdee, calc_lbm,
+    ACTIVITY_PAL_MAP, DEFAULT_PAL,
+)
+from app.services.metabolic import get_metabolic_alert
 
 router = APIRouter(prefix="/api/weight", tags=["weight"])
 
@@ -119,16 +123,31 @@ def set_goal(
     return existing
 
 
+def _current_metabolic_alert(db: Session, current_user: User) -> dict:
+    """体重画面用: 代謝適応アラートを算出する（プロフィール未入力時はPAL/BMR不明のまま扱う）。"""
+    pal = ACTIVITY_PAL_MAP.get(current_user.activity_level, DEFAULT_PAL)
+    bmr = calc_bmr(current_user)
+    static_tdee = calc_dynamic_tdee(bmr, pal, 0.0) if bmr is not None else None
+    lbm_kg = (
+        calc_lbm(current_user.weight_kg, current_user.body_fat_pct)
+        if current_user.weight_kg and current_user.body_fat_pct is not None
+        else None
+    )
+    return get_metabolic_alert(db, current_user, pal, static_tdee, lbm_kg)
+
+
 @router.get("/goal")
 def get_goal(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    metabolic_alert = _current_metabolic_alert(db, current_user)
+
     goal = db.query(WeightGoal).filter(
         WeightGoal.user_id == current_user.id
     ).first()
     if not goal:
-        return {"goal": None, "prediction": None}
+        return {"goal": None, "prediction": None, "metabolic_alert": metabolic_alert}
 
     since   = now_jst() - timedelta(days=30)   # ← JST明示
     records = db.query(WeightRecord).filter(
@@ -167,7 +186,7 @@ def get_goal(
                     "daily_change_kg": round(daily_change, 3),
                     "message": "現在の傾向では目標達成が難しい状態です。食事・運動を見直しましょう。"
                 }
-    return {"goal": goal, "prediction": prediction}
+    return {"goal": goal, "prediction": prediction, "metabolic_alert": metabolic_alert}
 
 
 @router.get("/prediction-data")

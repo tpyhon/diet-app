@@ -30,6 +30,7 @@ from app.services.calorie_engine import (
     ADAPTIVE_MIN_VALID_DAYS,
     DEFAULT_TDEE_FALLBACK,
 )
+from app.services.metabolic import get_metabolic_alert
 
 router = APIRouter(prefix="/api/tdee", tags=["tdee"])
 
@@ -148,6 +149,8 @@ def get_today_tdee(
         final_target_calories = round(final_calories)
         pfc = calc_pfc_from_lbm(final_target_calories, lbm_kg)
 
+    metabolic_alert = get_metabolic_alert(db, current_user, pal, static_tdee, lbm_kg)
+
     return {
         "bmr":                     round(bmr),
         "pal":                     pal,
@@ -170,4 +173,5 @@ def get_today_tdee(
         "ea_value":                round(ea_value, 1) if ea_value is not None else None,
         "ea_guard_active":         ea_guard_active,
         "recommended_pfc":         pfc,
+        "metabolic_alert":         metabolic_alert,
     }

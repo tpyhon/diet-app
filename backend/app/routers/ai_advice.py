@@ -10,6 +10,10 @@ from app.models.weight import WeightRecord
 from app.models.user import User
 from app.auth import get_current_user
 from app.utils import now_jst, parse_json_from_llm
+from app.services.calorie_engine import (
+    calc_bmr, calc_dynamic_tdee, calc_lbm, ACTIVITY_PAL_MAP, DEFAULT_PAL,
+)
+from app.services.metabolic import get_metabolic_alert, build_metabolic_ai_context
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
@@ -54,6 +58,18 @@ async def get_advice(
     w_start = weights[0].weight_kg if weights else None
     w_end   = weights[-1].weight_kg if weights else None
 
+    # ── 代謝適応（Metabolic Adaptation）の動的コンテキストをAIプロンプトへ差し込む ──
+    pal = ACTIVITY_PAL_MAP.get(current_user.activity_level, DEFAULT_PAL)
+    bmr = calc_bmr(current_user)
+    static_tdee = calc_dynamic_tdee(bmr, pal, 0.0) if bmr is not None else None
+    lbm_kg = (
+        calc_lbm(current_user.weight_kg, current_user.body_fat_pct)
+        if current_user.weight_kg and current_user.body_fat_pct is not None
+        else None
+    )
+    metabolic_alert = get_metabolic_alert(db, current_user, pal, static_tdee, lbm_kg)
+    metabolic_context = build_metabolic_ai_context(metabolic_alert)
+
     prompt = f"""
 あなたは経験豊富なパーソナルトレーナー兼栄養士です。
 以下のユーザーの過去7日間のデータを分析し、日本語で具体的なアドバイスを提供してください。
@@ -64,6 +80,7 @@ async def get_advice(
 - ウォーキング回数: {walk_cnt}回 / 合計 {walk_km:.1f}km / 消費 {walk_cal:.0f}kcal
 - 筋トレ実施回数: {train_cnt}回
 - 体重変化: {w_start}kg → {w_end}kg
+{metabolic_context}
 
 【出力形式】
 ■ 今週の総評
@@ -92,7 +109,8 @@ async def get_advice(
             "training_count":     train_cnt,
             "weight_start":       w_start,
             "weight_end":         w_end,
-        }
+        },
+        "metabolic_alert": metabolic_alert,
     }
 
 
