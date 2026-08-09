@@ -201,6 +201,7 @@ export type WeightRecord = {
   weight_kg: number
   body_fat_pct?: number
   notes?: string
+  weight_ema_7d?: number
 }
 
 export type GameStatus = {
@@ -285,6 +286,9 @@ export type DynamicTdeeResult = {
   calculated_tdee: number | null
   valid_days_count_14d: number
   adaptive_tdee_active: boolean
+  consecutive_missing_days: number | null
+  is_estimated_mode: boolean
+  needs_recalibration: boolean
   tdee: number
   pace_pct: number
   target_deficit: number

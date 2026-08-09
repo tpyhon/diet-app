@@ -178,12 +178,39 @@ function DynamicTdeeCard({ tdee }: { tdee: DynamicTdeeResult }) {
       <div className="flex items-center gap-2">
         <Gauge size={16} className="text-cyan-500" />
         <span className="font-semibold text-gray-700 text-sm">今日の動的カロリー目標</span>
-        {tdee.adaptive_tdee_active && (
+        {tdee.needs_recalibration ? (
+          <span className="ml-auto text-xs bg-red-100 text-red-600 rounded-full px-2 py-0.5">
+            要再調整
+          </span>
+        ) : tdee.is_estimated_mode ? (
+          <span className="ml-auto text-xs bg-amber-100 text-amber-600 rounded-full px-2 py-0.5">
+            推定モード
+          </span>
+        ) : tdee.adaptive_tdee_active && (
           <span className="ml-auto text-xs bg-purple-100 text-purple-600 rounded-full px-2 py-0.5">
             アダプティブ補正中
           </span>
         )}
       </div>
+
+      {tdee.needs_recalibration && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
+          <ShieldAlert size={16} className="text-red-500 mt-0.5 shrink-0" />
+          <span className="text-xs text-red-600">
+            体重・食事の記録が14日以上途絶えています。デフォルトTDEE（{tdee.tdee}kcal）にリセットしました。
+            記録を再開すると自動で再調整されます。
+          </span>
+        </div>
+      )}
+      {!tdee.needs_recalibration && tdee.is_estimated_mode && (
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3">
+          <ShieldAlert size={16} className="text-amber-500 mt-0.5 shrink-0" />
+          <span className="text-xs text-amber-600">
+            体重・食事の記録が{tdee.consecutive_missing_days}日間途絶えているため、
+            アダプティブ補正を一時停止し静的TDEEを使用しています。
+          </span>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2 text-center">
         <div className="bg-gray-50 rounded-xl p-3">
@@ -223,12 +250,12 @@ function DynamicTdeeCard({ tdee }: { tdee: DynamicTdeeResult }) {
             <span className="font-bold text-purple-700">{tdee.tdee} kcal</span>
           </div>
         </div>
-      ) : (
+      ) : !tdee.is_estimated_mode && !tdee.needs_recalibration ? (
         <p className="text-xs text-gray-400">
           ※ 食事記録が過去14日間で{tdee.valid_days_count_14d}/10日（体重記録も2件以上必要）のため、
           静的TDEEをそのまま使用しています。記録を続けるとアダプティブ補正が有効になります。
         </p>
-      )}
+      ) : null}
 
       <div className="bg-cyan-50 rounded-xl p-4 text-center">
         <div className="text-xs text-cyan-500 mb-1">最終目標カロリー / 日</div>

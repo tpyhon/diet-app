@@ -292,13 +292,14 @@ export default function WeightPage() {
   const avgW      = weights.length
     ? parseFloat((weights.reduce((a, b) => a + b, 0) / weights.length).toFixed(1)) : null
 
-  // グラフデータ（実績 + 予測を合成）
+  // グラフデータ（実績 + 7日移動平均(EMA) + 予測を合成）
   const chartData = (() => {
-    const actualMap: Record<string, { actual?: number; target?: number; predicted?: number }> = {}
+    const actualMap: Record<string, { actual?: number; ema?: number; target?: number; predicted?: number }> = {}
     for (const r of records) {
       const key = new Date(r.date).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' })
       actualMap[key] = {
         actual: r.weight_kg,
+        ema: r.weight_ema_7d,
         target: goalData?.goal?.target_weight_kg,
       }
     }
@@ -557,6 +558,16 @@ export default function WeightPage() {
                   strokeWidth={2.5}
                   dot={{ fill: '#3b82f6', r: 3 }}
                   activeDot={{ r: 5 }}
+                  connectNulls={false}
+                />
+                {/* 7日移動平均(EMA)ライン */}
+                <Line
+                  type="monotone"
+                  dataKey="ema"
+                  name="7日移動平均"
+                  stroke="#f97316"
+                  strokeWidth={1.5}
+                  dot={false}
                   connectNulls={false}
                 />
                 {/* 予測ライン */}
