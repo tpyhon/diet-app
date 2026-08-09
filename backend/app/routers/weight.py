@@ -9,6 +9,7 @@ from app.models.weight import WeightRecord, WeightGoal
 from app.models.user import User
 from app.auth import get_current_user
 from app.utils import now_jst
+from app.services.calorie_engine import calc_weight_ema_series
 
 router = APIRouter(prefix="/api/weight", tags=["weight"])
 
@@ -54,7 +55,7 @@ def get_history(
 ):
     delta = PERIOD_MAP.get(period, timedelta(days=30))
     since = now_jst() - delta   # ← JST明示
-    return (
+    records = (
         db.query(WeightRecord)
         .filter(
             WeightRecord.user_id == current_user.id,
@@ -63,6 +64,19 @@ def get_history(
         .order_by(WeightRecord.date.asc())
         .all()
     )
+    # 記録間隔が不規則でもグラフが読みやすいよう7日移動平均(EMA)を付与
+    ema_values = calc_weight_ema_series([r.weight_kg for r in records])
+    return [
+        {
+            "id":            r.id,
+            "date":          r.date,
+            "weight_kg":     r.weight_kg,
+            "body_fat_pct":  r.body_fat_pct,
+            "notes":         r.notes,
+            "weight_ema_7d": ema,
+        }
+        for r, ema in zip(records, ema_values)
+    ]
 
 
 @router.delete("/{record_id}")

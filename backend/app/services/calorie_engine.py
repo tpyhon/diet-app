@@ -28,6 +28,13 @@ ADAPTIVE_MIN_VALID_DAYS = 10   # この日数未満の有効データしか無�
 ADAPTIVE_CALC_RATIO    = 0.7   # Final_TDEEにおける実測修正TDEEの重み
 ADAPTIVE_STATIC_RATIO  = 0.3   # Final_TDEEにおける静的TDEEの重み
 
+# ── 欠損期間フォールバック（体重・食事の記録が途絶えた場合の3段階） ──
+ESTIMATED_MODE_MIN_DAYS   = 4    # 4〜13日連続欠損: 静的TDEEへ切替（is_estimated_mode）
+RECALIBRATION_MIN_DAYS    = 14   # 14日以上連続欠損: モデルをリセット（needs_recalibration）
+DEFAULT_TDEE_FALLBACK     = 2000 # アプリ初期設定時のデフォルトTDEE（既存の calorie_goal デフォルトと同値）
+
+WEIGHT_EMA_SPAN_DAYS = 7   # 体重グラフ表示用の移動平均(EMA)スパン
+
 
 def calc_bmr(user: User) -> Optional[float]:
     """Harris–Benedict式による基礎代謝量(BMR)の算出。"""
@@ -122,6 +129,36 @@ def blend_final_tdee(calculated_tdee: float, static_tdee: float) -> float:
         Final_TDEE = (Calculated_TDEE × 0.7) + (静的TDEE × 0.3)
     """
     return calculated_tdee * ADAPTIVE_CALC_RATIO + static_tdee * ADAPTIVE_STATIC_RATIO
+
+
+def calc_missing_data_status(consecutive_missing_days: Optional[int]) -> dict:
+    """
+    体重・食事記録の連続欠損日数から3段階フォールバック状態を判定する。
+        1〜3日: 通常運転（自動補完しつつ動的/アダプティブTDEEを継続）
+        4〜13日: is_estimated_mode=True（動的TDEE更新を停止し静的TDEEへ切替）
+        14日以上、または記録が一度も無い場合: needs_recalibration=True（デフォルトTDEEへリセット）
+    """
+    if consecutive_missing_days is None or consecutive_missing_days >= RECALIBRATION_MIN_DAYS:
+        return {"is_estimated_mode": False, "needs_recalibration": True}
+    if consecutive_missing_days >= ESTIMATED_MODE_MIN_DAYS:
+        return {"is_estimated_mode": True, "needs_recalibration": False}
+    return {"is_estimated_mode": False, "needs_recalibration": False}
+
+
+def calc_weight_ema_series(weights: list, span_days: int = WEIGHT_EMA_SPAN_DAYS) -> list:
+    """
+    体重記録列（時系列順）から指数移動平均(EMA)系列を算出する。
+    記録間隔が不規則でもグラフ描画時のノイズ（LOCF補完によるジャンプ等）を平滑化する。
+    """
+    if not weights:
+        return []
+    alpha = 2 / (span_days + 1)
+    ema = weights[0]
+    result = [round(ema, 2)]
+    for w in weights[1:]:
+        ema = alpha * w + (1 - alpha) * ema
+        result.append(round(ema, 2))
+    return result
 
 
 def estimate_training_calories(duration_minutes: Optional[float], weight_kg: float) -> float:
