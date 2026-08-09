@@ -279,6 +279,12 @@ export type DynamicTdeeResult = {
   bmr: number
   pal: number
   exercise_calories_today: number
+  static_tdee: number
+  avg_cal_in_14d: number | null
+  delta_weight_kg_14d: number | null
+  calculated_tdee: number | null
+  valid_days_count_14d: number
+  adaptive_tdee_active: boolean
   tdee: number
   pace_pct: number
   target_deficit: number

@@ -178,6 +178,11 @@ function DynamicTdeeCard({ tdee }: { tdee: DynamicTdeeResult }) {
       <div className="flex items-center gap-2">
         <Gauge size={16} className="text-cyan-500" />
         <span className="font-semibold text-gray-700 text-sm">今日の動的カロリー目標</span>
+        {tdee.adaptive_tdee_active && (
+          <span className="ml-auto text-xs bg-purple-100 text-purple-600 rounded-full px-2 py-0.5">
+            アダプティブ補正中
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2 text-center">
@@ -190,14 +195,40 @@ function DynamicTdeeCard({ tdee }: { tdee: DynamicTdeeResult }) {
           <div className="text-lg font-bold text-gray-700">{tdee.exercise_calories_today}</div>
         </div>
         <div className="bg-gray-50 rounded-xl p-3">
-          <div className="text-xs text-gray-400 mb-1">動的TDEE</div>
-          <div className="text-lg font-bold text-gray-700">{tdee.tdee}</div>
+          <div className="text-xs text-gray-400 mb-1">静的TDEE（BMR×PAL＋運動）</div>
+          <div className="text-lg font-bold text-gray-700">{tdee.static_tdee}</div>
         </div>
         <div className="bg-gray-50 rounded-xl p-3">
           <div className="text-xs text-gray-400 mb-1">目標赤字（ペース{tdee.pace_pct}%）</div>
           <div className="text-lg font-bold text-gray-700">-{tdee.target_deficit}</div>
         </div>
       </div>
+
+      {tdee.adaptive_tdee_active ? (
+        <div className="bg-purple-50 rounded-xl p-3 space-y-1">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-purple-500">過去14日 平均摂取カロリー</span>
+            <span className="font-semibold text-purple-700">{tdee.avg_cal_in_14d} kcal</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-purple-500">体重変化（14日間）</span>
+            <span className="font-semibold text-purple-700">{tdee.delta_weight_kg_14d! > 0 ? '+' : ''}{tdee.delta_weight_kg_14d} kg</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-purple-500">実測修正TDEE</span>
+            <span className="font-semibold text-purple-700">{tdee.calculated_tdee} kcal</span>
+          </div>
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-purple-100">
+            <span className="text-purple-600">採用TDEE（実測70%＋静的30%）</span>
+            <span className="font-bold text-purple-700">{tdee.tdee} kcal</span>
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs text-gray-400">
+          ※ 食事記録が過去14日間で{tdee.valid_days_count_14d}/10日（体重記録も2件以上必要）のため、
+          静的TDEEをそのまま使用しています。記録を続けるとアダプティブ補正が有効になります。
+        </p>
+      )}
 
       <div className="bg-cyan-50 rounded-xl p-4 text-center">
         <div className="text-xs text-cyan-500 mb-1">最終目標カロリー / 日</div>
