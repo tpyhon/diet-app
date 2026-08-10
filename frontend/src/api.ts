@@ -74,6 +74,11 @@ export const createWalkingSession  = (data: unknown) => api.post('/walking/', da
 export const fetchRoute            = (id: number) => api.get(`/walking/${id}/route`)
 export const deleteWalkingSession  = (id: number) => api.delete(`/walking/${id}`)
 
+// ── サイクリング ──────────────────────────────────
+export const fetchCyclingSessions  = () => api.get<CyclingSession[]>('/cycling/')
+export const createCyclingSession  = (data: unknown) => api.post('/cycling/', data)
+export const deleteCyclingSession  = (id: number) => api.delete(`/cycling/${id}`)
+
 // ── 筋トレ ──────────────────────────────────────
 export const fetchPlans            = () => api.get('/training/plans')
 export const createPlan            = (data: unknown) => api.post('/training/plans', data)
@@ -178,6 +183,17 @@ export type WalkingSession = {
   notes?: string
   manual_distance_km?: number
   route_json?: string | null
+}
+
+export type CyclingSession = {
+  id: number
+  start_time: string
+  end_time?: string | null
+  duration_minutes: number
+  distance_km: number
+  avg_speed_kmh: number
+  estimated_calories: number
+  notes?: string
 }
 
 export type TrainingPlan = {
