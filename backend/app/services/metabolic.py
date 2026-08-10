@@ -131,6 +131,12 @@ def calc_metabolic_adaptation_status(
     delta_weight_14 = _delta_weight_in_range(weight_points, window14_start, today)
 
     avg_deficit_14 = (static_tdee - avg_cal_in_14) if (static_tdee is not None and avg_cal_in_14 is not None) else None
+
+    avg_cal_in_recent_7 = _avg_in_date_range(daily_cal_totals, window7r_start, today, ADAPTATION_MIN_VALID_DAYS_7)
+    avg_deficit_recent_7 = (
+        (static_tdee - avg_cal_in_recent_7) if (static_tdee is not None and avg_cal_in_recent_7 is not None) else None
+    )
+
     weekly_loss_pct = None
     if delta_weight_14 is not None and weight_kg:
         weekly_loss_pct = (-delta_weight_14 / weight_kg / (ADAPTIVE_WINDOW_DAYS / 7)) * 100
@@ -172,6 +178,7 @@ def calc_metabolic_adaptation_status(
         "measured_bmr_recent_7d":    round(measured_bmr_recent) if measured_bmr_recent is not None else None,
         "measured_bmr_prior_7d":     round(measured_bmr_prior) if measured_bmr_prior is not None else None,
         "avg_deficit_14d":           round(avg_deficit_14) if avg_deficit_14 is not None else None,
+        "avg_deficit_recent_7d":     round(avg_deficit_recent_7) if avg_deficit_recent_7 is not None else None,
         "weekly_loss_pct":           round(weekly_loss_pct, 2) if weekly_loss_pct is not None else None,
     }
 
@@ -192,27 +199,46 @@ def get_metabolic_alert(db: Session, user: User, pal: float,
     )
 
 
-def build_metabolic_ai_context(status: dict) -> str:
-    """代謝適応ステータスから、Gemma AIのプロンプトに差し込む動的コンテキスト文字列を生成する。"""
-    if not status.get("has_alert"):
-        return ""
-    lines = [
-        "【重要コンテキスト：代謝適応の兆候】",
-        "このユーザーには代謝適応（メタボリックアダプテーション）の兆候が検知されています。",
-    ]
-    if status.get("predicted_bmr") is not None and status.get("measured_bmr_recent_7d") is not None:
-        lines.append(
-            f"予測BMR（Cunningham式）{status['predicted_bmr']}kcalに対し、"
-            f"直近7日間の実測ベースBMRは{status['measured_bmr_recent_7d']}kcalまで低下しています。"
-        )
-    if status.get("condition_b_deficit_stall"):
-        lines.append(
-            f"過去14日間、平均{status.get('avg_deficit_14d')}kcal/日の赤字を維持しているにもかかわらず、"
-            f"体重減少率は週{status.get('weekly_loss_pct')}%にとどまっており、停滞状態です。"
-        )
-    lines.append(
-        "これは食事制限の継続により代謝が低下した結果であり、ユーザーの「努力不足」ではありません。"
-        "アドバイスでは焦らせず、必要であればリフィード（一時的な摂取量増加）や休息期間の提案、"
-        "厳しすぎるカロリー制限を避けることを盛り込んでください。"
-    )
-    return "\n".join(lines)
+def format_weight_trend(weight_points: list, today, window_days: int = ADAPTATION_RECENT_WINDOW_DAYS) -> str:
+    """過去window_days日間の体重推移を「MM/DD:xx.xkg → ...」形式の文字列にする。"""
+    start = today - timedelta(days=window_days - 1)
+    pts = sorted((d, w) for d, w in weight_points if start <= d <= today)
+    if not pts:
+        return "記録なし"
+    return " → ".join(f"{d.strftime('%m/%d')}:{w}kg" for d, w in pts)
+
+
+def format_measured_bmr_trend(status: dict) -> str:
+    """実測BMRの推移（前の7日間 → 直近7日間）を文字列にする。"""
+    prior  = status.get("measured_bmr_prior_7d")
+    recent = status.get("measured_bmr_recent_7d")
+    if prior is None and recent is None:
+        return "データ不足のため算出不可"
+    prior_str  = f"{prior}kcal" if prior is not None else "不明"
+    recent_str = f"{recent}kcal" if recent is not None else "不明"
+    return f"{prior_str}（8〜14日前） → {recent_str}（直近7日間）"
+
+
+def build_metabolic_system_context(status: dict, weight_trend: str, bmr_trend: str) -> str:
+    """
+    AIアドバイスリクエスト時にシステムプロンプトへ注入する、代謝適応チェック用の
+    動的コンテキストを生成する。
+
+    注入データ: 体重推移 / 実測BMR推移 / 平均エネルギー赤字量 / 代謝適応フラグ(bool)
+    """
+    deficit = status.get("avg_deficit_recent_7d")
+    deficit_str = f"{deficit}kcal/日" if deficit is not None else "データ不足のため算出不可"
+    flag_str = "true（検知あり）" if status.get("has_alert") else "false（検知なし）"
+
+    return "\n".join([
+        "【代謝適応チェック用データ（過去7日間）】",
+        f"- 体重推移: {weight_trend}",
+        f"- 実測BMR推移: {bmr_trend}",
+        f"- 平均エネルギー赤字量: {deficit_str}",
+        f"- 代謝適応フラグ: {flag_str}",
+        "",
+        "【ルール】",
+        "代謝適応フラグがtrueの場合は、過度なカロリー制限を戒め、"
+        "1〜2日間のリフィード（ハイカーボデイ）または1〜2週間のダイエットブレイクを、"
+        "学術的な理由（レプチン分泌の低下・適応性熱産生の増加など）とともに提案すること。",
+    ])

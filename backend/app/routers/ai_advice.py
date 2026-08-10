@@ -13,7 +13,10 @@ from app.utils import now_jst, parse_json_from_llm
 from app.services.calorie_engine import (
     calc_bmr, calc_dynamic_tdee, calc_lbm, ACTIVITY_PAL_MAP, DEFAULT_PAL,
 )
-from app.services.metabolic import get_metabolic_alert, build_metabolic_ai_context
+from app.services.metabolic import (
+    gather_window_data, calc_metabolic_adaptation_status,
+    format_weight_trend, format_measured_bmr_trend, build_metabolic_system_context,
+)
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
@@ -67,8 +70,20 @@ async def get_advice(
         if current_user.weight_kg and current_user.body_fat_pct is not None
         else None
     )
-    metabolic_alert = get_metabolic_alert(db, current_user, pal, static_tdee, lbm_kg)
-    metabolic_context = build_metabolic_ai_context(metabolic_alert)
+    today, daily_cal_totals, daily_exercise_totals, weight_points = gather_window_data(db, current_user)
+    metabolic_status = calc_metabolic_adaptation_status(
+        today=today,
+        daily_cal_totals=daily_cal_totals,
+        daily_exercise_totals=daily_exercise_totals,
+        weight_points=weight_points,
+        weight_kg=current_user.weight_kg,
+        pal=pal,
+        static_tdee=static_tdee,
+        lbm_kg=lbm_kg,
+    )
+    weight_trend_str = format_weight_trend(weight_points, today)
+    bmr_trend_str     = format_measured_bmr_trend(metabolic_status)
+    metabolic_system_context = build_metabolic_system_context(metabolic_status, weight_trend_str, bmr_trend_str)
 
     prompt = f"""
 あなたは経験豊富なパーソナルトレーナー兼栄養士です。
@@ -80,7 +95,6 @@ async def get_advice(
 - ウォーキング回数: {walk_cnt}回 / 合計 {walk_km:.1f}km / 消費 {walk_cal:.0f}kcal
 - 筋トレ実施回数: {train_cnt}回
 - 体重変化: {w_start}kg → {w_end}kg
-{metabolic_context}
 
 【出力形式】
 ■ 今週の総評
@@ -89,7 +103,10 @@ async def get_advice(
 ■ 来週の目標（具体的に2つ）
 ■ 激励メッセージ
 """
-    prompt = f"【システム指示：あなたは親しみやすく熱心なダイエットコーチです。】\n\n{prompt}"
+    prompt = (
+        f"【システム指示：あなたは親しみやすく熱心なダイエットコーチです。】\n\n"
+        f"{metabolic_system_context}\n\n{prompt}"
+    )
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     response = client.models.generate_content(
         model=os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash"),
@@ -110,7 +127,7 @@ async def get_advice(
             "weight_start":       w_start,
             "weight_end":         w_end,
         },
-        "metabolic_alert": metabolic_alert,
+        "metabolic_alert": metabolic_status,
     }
 
 
