@@ -1,7 +1,7 @@
 // frontend/src/App.tsx
 import { useState } from 'react'
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Home, UtensilsCrossed, Footprints, Dumbbell, Scale, Bot, LogOut, User } from 'lucide-react'
+import { Home, UtensilsCrossed, Activity, Dumbbell, Scale, Bot, LogOut, User } from 'lucide-react'
 import Dashboard    from './pages/Dashboard'
 import MealPage     from './pages/MealPage'
 import WeightPage   from './pages/WeightPage'
@@ -14,7 +14,7 @@ import ProfilePage  from './pages/ProfilePage'
 const navItems = [
   { to: '/',         icon: Home,            label: 'ホーム'   },
   { to: '/meal',     icon: UtensilsCrossed, label: '食事'     },
-  { to: '/walking',  icon: Footprints,      label: 'ウォーク' },
+  { to: '/walking',  icon: Activity,        label: '運動'     },
   { to: '/training', icon: Dumbbell,        label: '筋トレ'   },
   { to: '/weight',   icon: Scale,           label: '体重'     },
   { to: '/ai',       icon: Bot,             label: 'AI'       },
