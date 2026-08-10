@@ -2,9 +2,10 @@
 import { useQuery } from '@tanstack/react-query'
 import {
   fetchTodayMeals, fetchGameStatus, fetchWeightHistory,
-  fetchWalkingSessions, fetchProfile,
+  fetchWalkingSessions, fetchProfile, fetchDynamicTdee,
 } from '../api'
-import type { GameStatus, TodayMealsResponse, UserProfile } from '../api'
+import type { GameStatus, TodayMealsResponse, UserProfile, DynamicTdeeResult } from '../api'
+import { DynamicTdeeCard } from '../components/DynamicTdeeCard'
 import {
   Flame, Footprints, Dumbbell, Scale,
   TrendingDown, TrendingUp, Minus, Trophy, Zap,
@@ -151,13 +152,22 @@ export default function Dashboard() {
     queryFn: () => fetchProfile().then(r => r.data),
   })
 
+  // 動的カロリー目標（年齢・性別・身長・体重が揃っていれば取得。ProfilePageと同じクエリキーでキャッシュ共有）
+  const tdeeReady = !!(profile?.age && profile?.gender && profile?.height_cm && profile?.weight_kg)
+  const { data: dynamicTdee } = useQuery<DynamicTdeeResult>({
+    queryKey: ['dynamic-tdee'],
+    queryFn: () => fetchDynamicTdee().then(r => r.data),
+    enabled: tdeeReady,
+  })
+
   const todayCalories  = todayData?.total_calories ?? 0
   const todayProtein   = todayData?.total_protein  ?? 0
   const todayFat       = todayData?.total_fat      ?? 0
   const todayCarbs     = todayData?.total_carbs    ?? 0
 
-  // カロリー目標はプロフィールから取得（未設定なら2000）
-  const TARGET_CALORIES = profile?.calorie_goal ?? 2000
+  // カロリー目標は動的TDEEを優先し、無ければプロフィールの手動設定値、それも無ければ2000
+  const TARGET_CALORIES = dynamicTdee?.target_calories ?? profile?.calorie_goal ?? 2000
+  const targetPfc = dynamicTdee?.recommended_pfc ?? profile?.recommended_pfc
 
   const latestWeight = weightData?.length > 0 ? weightData[weightData.length - 1].weight_kg : null
   const firstWeight  = weightData?.length > 1 ? weightData[0].weight_kg : null
@@ -191,9 +201,9 @@ export default function Dashboard() {
             <Flame className="text-orange-500" size={20} />
             <span className="font-semibold text-gray-700">今日の摂取カロリー</span>
           </div>
-          {profile?.calorie_goal && (
+          {(dynamicTdee?.target_calories || profile?.calorie_goal) && (
             <span className="text-xs bg-orange-50 text-orange-500 rounded-full px-2 py-0.5 font-medium">
-              目標 {TARGET_CALORIES} kcal
+              目標 {TARGET_CALORIES} kcal{dynamicTdee?.target_calories && '（動的）'}
             </span>
           )}
         </div>
@@ -214,21 +224,24 @@ export default function Dashboard() {
         <div className="text-right text-xs text-gray-400 mt-1">{caloriesPct}%</div>
 
         {/* PFCバー */}
-        {(todayProtein > 0 || todayFat > 0 || todayCarbs > 0 || profile?.recommended_pfc) && (
+        {(todayProtein > 0 || todayFat > 0 || todayCarbs > 0 || targetPfc) && (
           <div className="mt-4 pt-4 border-t border-gray-50">
             <p className="text-xs text-gray-400 mb-2 font-medium">今日のPFCバランス</p>
             <PfcBar
               protein={todayProtein}
               fat={todayFat}
               carbs={todayCarbs}
-              targetProtein={profile?.recommended_pfc?.protein_g}
-              targetFat={profile?.recommended_pfc?.fat_g}
-              targetCarbs={profile?.recommended_pfc?.carbs_g}
+              targetProtein={targetPfc?.protein_g}
+              targetFat={targetPfc?.fat_g}
+              targetCarbs={targetPfc?.carbs_g}
             />
           </div>
         )}
 
       </div>
+
+      {/* 動的カロリー目標（常時表示） */}
+      {dynamicTdee && <DynamicTdeeCard tdee={dynamicTdee} />}
 
       {/* サマリーグリッド */}
       <div className="grid grid-cols-2 gap-3">
