@@ -5,6 +5,7 @@ import { MapContainer, TileLayer, Polyline, Marker, Popup } from 'react-leaflet'
 import {
   fetchWalkingSessions, createWalkingSession, deleteWalkingSession,
   fetchCyclingSessions, createCyclingSession, deleteCyclingSession,
+  fetchProfile,
 } from '../api'
 import type { WalkingSession, CyclingSession } from '../api'
 import { fixLeafletIcons, startIcon, endIcon } from '../utils/leafletIcons'
@@ -61,6 +62,21 @@ const CYCLING_METS               = 5.8  // 適用強度（backend/app/routers/cy
 function calcCyclingCalories(durationMin: number, weightKg = 65): number {
   if (durationMin <= 0) return 0
   return Math.round(CYCLING_METS * weightKg * (durationMin / 60) * 1.05)
+}
+
+// ウォーキングは歩数しか分からないユーザーが大半のため、歩数から距離・時間を推定する
+// （backend/app/routers/walking.pyの estimate_distance_km_from_steps / estimate_duration_min_from_steps と同値）
+const DEFAULT_HEIGHT_CM  = 165  // 身長未設定時に仮定する身長
+const STEP_LENGTH_RATIO  = 0.45 // 歩幅 = 身長 × この比率
+const STEP_PITCH_PER_MIN = 100  // 歩数から時間を推定する際のピッチ(歩/分)
+
+function estimateDistanceKmFromSteps(steps: number, heightCm: number): number {
+  const strideM = heightCm * STEP_LENGTH_RATIO / 100
+  return (steps * strideM) / 1000
+}
+
+function estimateDurationMinFromSteps(steps: number): number {
+  return steps / STEP_PITCH_PER_MIN
 }
 
 
@@ -230,14 +246,22 @@ function ManualEntryForm() {
   const [show, setShow]                 = useState(false)
   const [exerciseType, setExerciseType] = useState<ExerciseType>('walking')
   const [date, setDate]                 = useState(todayDateString)
-  const [distance, setDistance]         = useState('')
-  const [duration, setDuration]         = useState('')
+  const [steps, setSteps]               = useState('')     // ウォーキング（歩数のみ）
+  const [distance, setDistance]         = useState('')     // サイクリング
+  const [duration, setDuration]         = useState('')     // サイクリング（任意）
   const [notes, setNotes]               = useState('')
   const queryClient                     = useQueryClient()
 
+  // 歩数→距離の推定に使う身長（未設定ならbackendと同じ165cmを仮定）
+  const { data: profile } = useQuery({
+    queryKey: ['profile'],
+    queryFn: () => fetchProfile().then(r => r.data),
+  })
+  const heightCm = profile?.height_cm ?? DEFAULT_HEIGHT_CM
+
   const resetForm = () => {
     setShow(false)
-    setDistance(''); setDuration(''); setNotes('')
+    setSteps(''); setDistance(''); setDuration(''); setNotes('')
     setDate(todayDateString())
   }
 
@@ -262,56 +286,57 @@ function ManualEntryForm() {
   })
 
   const mutation = exerciseType === 'walking' ? walkingMutation : cyclingMutation
-  const defaultSpeedKmh = exerciseType === 'walking' ? 5.5 : CYCLING_DEFAULT_SPEED_KMH
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const dist = parseFloat(distance)
-    if (isNaN(dist) || dist <= 0) { toast.error('距離を入力してください'); return }
     if (!date) { toast.error('日付を入力してください'); return }
 
+    if (exerciseType === 'walking') {
+      const stepsNum = parseInt(steps, 10)
+      if (isNaN(stepsNum) || stepsNum <= 0) { toast.error('歩数を入力してください'); return }
+      walkingMutation.mutate({
+        start_time:   `${date}T00:00:00`,
+        route_points: [],
+        steps:        stepsNum,
+        notes:        notes || undefined,
+      })
+      return
+    }
+
+    const dist = parseFloat(distance)
+    if (isNaN(dist) || dist <= 0) { toast.error('距離を入力してください'); return }
     const dur = parseFloat(duration)
-    const effectiveMinutes = (!isNaN(dur) && dur > 0)
-      ? dur
-      : (dist / defaultSpeedKmh) * 60
+    const effectiveMinutes = (!isNaN(dur) && dur > 0) ? dur : (dist / CYCLING_DEFAULT_SPEED_KMH) * 60
     const startDt = new Date(`${date}T00:00:00`)
     const endDt   = new Date(startDt.getTime() + effectiveMinutes * 60 * 1000)
     const pad = (n: number) => String(n).padStart(2, '0')
     const toLocal = (d: Date) =>
       `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-
-    if (exerciseType === 'walking') {
-      walkingMutation.mutate({
-        start_time:              toLocal(startDt),
-        end_time:                toLocal(endDt),
-        route_points:            [],
-        manual_distance_km:      dist,
-        manual_duration_minutes: (!isNaN(dur) && dur > 0) ? dur : undefined,
-        notes:                   notes || undefined,
-      })
-    } else {
-      cyclingMutation.mutate({
-        start_time:              toLocal(startDt),
-        end_time:                toLocal(endDt),
-        distance_km:             dist,
-        manual_duration_minutes: (!isNaN(dur) && dur > 0) ? dur : undefined,
-        notes:                   notes || undefined,
-      })
-    }
+    cyclingMutation.mutate({
+      start_time:              toLocal(startDt),
+      end_time:                toLocal(endDt),
+      distance_km:             dist,
+      manual_duration_minutes: (!isNaN(dur) && dur > 0) ? dur : undefined,
+      notes:                   notes || undefined,
+    })
   }
 
-  // 距離が入力されていれば（時間不明でも）カロリーをプレビュー
+  // ── プレビュー ──
+  const stepsNum   = parseInt(steps, 10)
+  const hasSteps    = !isNaN(stepsNum) && stepsNum > 0
+  const estDistanceKm  = hasSteps ? estimateDistanceKmFromSteps(stepsNum, heightCm) : 0
+  const estDurationMin = hasSteps ? estimateDurationMinFromSteps(stepsNum) : 0
+
   const dist = parseFloat(distance)
   const dur  = parseFloat(duration)
   const hasDistance = !isNaN(dist) && dist > 0
   const hasDuration = !isNaN(dur) && dur > 0
-  const effectiveDur   = hasDuration ? dur : (hasDistance ? (dist / defaultSpeedKmh) * 60 : 0)
-  const effectiveSpeed = hasDuration ? dist / (dur / 60) : defaultSpeedKmh
-  const previewCalories = hasDistance
-    ? (exerciseType === 'walking'
-        ? calcWalkingCalories(dist, effectiveDur)
-        : calcCyclingCalories(effectiveDur))
-    : null
+  const effectiveDur   = hasDuration ? dur : (hasDistance ? (dist / CYCLING_DEFAULT_SPEED_KMH) * 60 : 0)
+  const effectiveSpeed = hasDuration ? dist / (dur / 60) : CYCLING_DEFAULT_SPEED_KMH
+
+  const previewCalories = exerciseType === 'walking'
+    ? (hasSteps ? calcWalkingCalories(estDistanceKm, estDurationMin) : null)
+    : (hasDistance ? calcCyclingCalories(effectiveDur) : null)
 
   if (!show) {
     return (
@@ -392,32 +417,48 @@ function ManualEntryForm() {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      {exerciseType === 'walking' ? (
         <div>
-          <label className="text-xs text-gray-500 mb-1 block">距離 (km) *</label>
+          <label className="text-xs text-gray-500 mb-1 block">歩数 *</label>
           <div className="relative">
             <input
-              type="number" step="0.1" min="0" placeholder="例：5.0"
-              value={distance} onChange={e => setDistance(e.target.value)}
+              type="number" step="1" min="0" placeholder="例：8000"
+              value={steps} onChange={e => setSteps(e.target.value)}
               className={`w-full border border-gray-200 rounded-xl px-3 py-3 text-sm
                          focus:outline-none focus:ring-2 ${theme.ring} pr-10`}
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">km</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">歩</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">身長から歩幅を推定し、距離・時間を自動算出します</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">距離 (km) *</label>
+            <div className="relative">
+              <input
+                type="number" step="0.1" min="0" placeholder="例：20.0"
+                value={distance} onChange={e => setDistance(e.target.value)}
+                className={`w-full border border-gray-200 rounded-xl px-3 py-3 text-sm
+                           focus:outline-none focus:ring-2 ${theme.ring} pr-10`}
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">km</span>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">時間 (分)　任意</label>
+            <div className="relative">
+              <input
+                type="number" step="1" min="0" placeholder="不明なら空欄"
+                value={duration} onChange={e => setDuration(e.target.value)}
+                className={`w-full border border-gray-200 rounded-xl px-3 py-3 text-sm
+                           focus:outline-none focus:ring-2 ${theme.ring} pr-10`}
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">分</span>
+            </div>
           </div>
         </div>
-        <div>
-          <label className="text-xs text-gray-500 mb-1 block">時間 (分)　任意</label>
-          <div className="relative">
-            <input
-              type="number" step="1" min="0" placeholder="不明なら空欄"
-              value={duration} onChange={e => setDuration(e.target.value)}
-              className={`w-full border border-gray-200 rounded-xl px-3 py-3 text-sm
-                         focus:outline-none focus:ring-2 ${theme.ring} pr-10`}
-            />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">分</span>
-          </div>
-        </div>
-      </div>
+      )}
 
       <div>
         <label className="text-xs text-gray-500 mb-1 block">メモ（任意）</label>
@@ -429,7 +470,18 @@ function ManualEntryForm() {
         />
       </div>
 
-      {previewCalories !== null && (
+      {previewCalories !== null && exerciseType === 'walking' && (
+        <div className={`${theme.previewBg} rounded-xl px-4 py-3 text-sm ${theme.previewText}`}>
+          推定消費カロリー：約
+          <span className="font-bold mx-1">{previewCalories}</span>
+          kcal
+          <span className={`text-xs ${theme.previewSub} ml-2`}>
+            （推定距離 {estDistanceKm.toFixed(2)}km・推定時間 {Math.round(estDurationMin)}分）
+          </span>
+        </div>
+      )}
+
+      {previewCalories !== null && exerciseType === 'cycling' && (
         <div className={`${theme.previewBg} rounded-xl px-4 py-3 text-sm ${theme.previewText}`}>
           推定消費カロリー：約
           <span className="font-bold mx-1">{previewCalories}</span>
