@@ -24,9 +24,24 @@ class WalkingCreate(BaseModel):
     notes: Optional[str] = None
     manual_distance_km: Optional[float] = None
     manual_duration_minutes: Optional[float] = None
+    steps: Optional[int] = None
 
 
 DEFAULT_WALKING_SPEED_KMH = 5.5  # GPS/時間不明時のカロリー推定に使うデフォルト速度
+DEFAULT_HEIGHT_CM         = 165.0  # 身長未設定時に仮定する身長
+STEP_LENGTH_RATIO         = 0.45   # 歩幅 = 身長 × この比率
+STEP_PITCH_PER_MIN        = 100    # 歩数から時間を推定する際のピッチ(歩/分)
+
+
+def estimate_distance_km_from_steps(steps: int, height_cm: float) -> float:
+    """歩数と身長から推定距離(km)を算出する。 歩幅(m) = 身長(cm) × 0.45 / 100"""
+    stride_m = height_cm * STEP_LENGTH_RATIO / 100
+    return (steps * stride_m) / 1000
+
+
+def estimate_duration_min_from_steps(steps: int) -> float:
+    """歩数からピッチ100歩/分で推定時間(分)を算出する。"""
+    return steps / STEP_PITCH_PER_MIN
 
 
 def haversine_km(points: List[GPSPoint]) -> float:
@@ -41,23 +56,31 @@ def haversine_km(points: List[GPSPoint]) -> float:
     return round(total, 3)
 
 
+def _lerp(x: float, x0: float, x1: float, y0: float, y1: float) -> float:
+    """x0〜x1の範囲でxをy0〜y1へ線形補間する。"""
+    return y0 + (x - x0) / (x1 - x0) * (y1 - y0)
+
+
 def speed_to_mets(speed_kmh: float) -> float:
     """
-    歩行速度(km/h)からMETs値を返す。
+    歩行速度(km/h)からMETs値を線形補間で返す。
     参考: Compendium of Physical Activities
-      ~3.2 km/h  → 2.8  (ゆっくり歩き)
-       3.2~4.8   → 3.5  (普通歩き)
-       4.8~6.4   → 4.3  (早歩き)
-       6.4~      → 5.0  (競歩・速歩き)
+      <= 3.2 km/h        : 2.8  (ゆっくり歩き)
+       3.2 ~  4.8 (補間)  : 2.8 → 3.5
+       4.8 ~  6.4 (補間)  : 3.5 → 4.3  (早歩き)
+       6.4 ~  8.0 (補間)  : 4.3 → 5.0  (競歩・速歩き)
+      >= 8.0 km/h        : 5.0 + (速度-8.0)×0.5 （上限8.0 METs、ランニング域）
     """
-    if speed_kmh < 3.2:
+    if speed_kmh <= 3.2:
         return 2.8
     elif speed_kmh < 4.8:
-        return 3.5
+        return _lerp(speed_kmh, 3.2, 4.8, 2.8, 3.5)
     elif speed_kmh < 6.4:
-        return 4.3
+        return _lerp(speed_kmh, 4.8, 6.4, 3.5, 4.3)
+    elif speed_kmh < 8.0:
+        return _lerp(speed_kmh, 6.4, 8.0, 4.3, 5.0)
     else:
-        return 5.0
+        return min(5.0 + (speed_kmh - 8.0) * 0.5, 8.0)
 
 
 def walking_calories(
@@ -97,13 +120,22 @@ def create_session(
 ):
     if data.manual_distance_km is not None:
         distance = data.manual_distance_km
+    elif data.route_points:
+        distance = haversine_km(data.route_points)
+    elif data.steps is not None and data.steps > 0:
+        # 歩数のみ入力時のフォールバック: 身長から歩幅を推定して距離を算出
+        height_cm = current_user.height_cm or DEFAULT_HEIGHT_CM
+        distance = estimate_distance_km_from_steps(data.steps, height_cm)
     else:
-        distance = haversine_km(data.route_points or [])
+        distance = 0.0
 
     if data.manual_duration_minutes is not None:
         duration = data.manual_duration_minutes
     elif data.end_time is not None:
         duration = (data.end_time - data.start_time).total_seconds() / 60
+    elif data.steps is not None and data.steps > 0:
+        # 歩数のみ入力時のフォールバック: ピッチ100歩/分で時間を推定
+        duration = estimate_duration_min_from_steps(data.steps)
     else:
         # 時間不明の場合はデフォルト速度から推定
         duration = (distance / DEFAULT_WALKING_SPEED_KMH) * 60 if distance > 0 else 0.0
