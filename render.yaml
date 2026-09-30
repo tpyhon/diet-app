@@ -17,3 +17,21 @@ services:
         value: gemini-1.5-flash
       - key: PYTHON_VERSION
         value: "3.11.9"
+      - key: CORS_ORIGINS
+        value: "https://diet-app-frontend.onrender.com,http://localhost:3000"
+
+  - type: static_site
+    name: diet-app-frontend
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: "https://diet-app-backend.onrender.com"
+
+  - type: pserv
+    name: diet-app-postgres
+    plan: free
+    region: ohio
+    ipAllowList: []
